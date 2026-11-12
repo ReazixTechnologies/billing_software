@@ -1596,7 +1596,9 @@ function runControlScript(scriptPath) {
       : [unixShell, [scriptPath]];
     let out = '', err = '';
     try {
-      const child = spawn(cmd, args, { detached: false, windowsHide: false });
+      // No keyboard (stdin 'ignore'): a script that asks "Press Enter"
+      // must not wait for it here, or the app shows "Updating..." forever.
+      const child = spawn(cmd, args, { detached: false, windowsHide: false, stdio: ['ignore', 'pipe', 'pipe'] });
       child.stdout?.on('data', d => { out += d.toString(); });
       child.stderr?.on('data', d => { err += d.toString(); });
       child.on('error', e => resolve({ ok: false, error: e.message }));

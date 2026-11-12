@@ -4,6 +4,7 @@ import PageHeader from './PageHeader';
 import { toast } from './Toast';
 import HelpButton from './HelpButton';
 import { docsLink } from '../utils';
+import { restartAndReload } from '../store';
 
 // v1.10.44 — In-app Control Panel.
 //
@@ -65,7 +66,12 @@ export default function ControlPanel() {
       });
       const data = await r.json();
       setLastResult({ action, ...data });
-      if (data.ok) toast(`${prettyAction(action)} completed.`, 'success');
+      if (data.ok && action === 'update') {
+        // The running server is still the old version: restart into the new one.
+        toast('Update installed. Restarting the app…', 'success', 10000);
+        if (await restartAndReload()) return;
+        toast('Update installed. Close the app and open it again to use the new version.', 'success', 15000);
+      } else if (data.ok) toast(`${prettyAction(action)} completed.`, 'success');
       else toast(`${prettyAction(action)} failed — ${data.error || 'see details below'}`, 'error');
     } catch (e) {
       setLastResult({ action, ok: false, error: e.message });

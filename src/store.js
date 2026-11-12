@@ -590,6 +590,24 @@ export const runUpdateNow = async () => {
   }
 };
 
+// After an update the running server is still the OLD code (Windows and Mac
+// alike): start a new copy, wait until it answers, then reload this page so
+// the new version runs at once. Returns false if it did not come back; the
+// update is still installed and opening the app again finishes it.
+export const restartAndReload = async () => {
+  try {
+    const r = await fetch('/api/control-panel/restart', { method: 'POST' });
+    const data = await r.json();
+    if (!data.ok) return false;
+  } catch { return false; }
+  await new Promise((res) => setTimeout(res, 1500));
+  for (let i = 0; i < 40; i++) {
+    try { if ((await fetch('/api/version', { cache: 'no-store' })).ok) { window.location.reload(); return true; } } catch { /* still starting */ }
+    await new Promise((res) => setTimeout(res, 750));
+  }
+  return false;
+};
+
 export const exportAllData = async (selection) => {
   const [all, version] = await Promise.all([apiFetch(`${API}/export`), getAppVersion()]);
   const sel = selection || { profile: true, profiles: true, bills: true, clients: true, products: true, expenses: true, purchases: true, recurring: true, receipts: true, termsTemplates: true, meta: true, localStorage: true };

@@ -106,11 +106,14 @@ export function shortcutProblem(combo, actionId, current) {
   return '';
 }
 
-// Shown on screen: "Ctrl + I", with ⌘ on a Mac.
+// Shown on screen: "Ctrl + I"; on a Mac "Control + I". Both Control and ⌘
+// work, but the browser keeps some ⌘ keys for itself (⌘Q quits it, ⌘W
+// closes the tab), so a Mac is shown the Control key, which always reaches
+// the app.
 export function formatCombo(combo) {
   if (!combo) return '';
   const mac = typeof navigator !== 'undefined' && /Mac/i.test(navigator.platform || '');
-  return combo.split('+').map((p) => (p === 'Ctrl' && mac ? '⌘' : p === 'Alt' && mac ? 'Option' : p)).join(' + ');
+  return combo.split('+').map((p) => (p === 'Ctrl' && mac ? 'Control' : p === 'Alt' && mac ? 'Option' : p)).join(' + ');
 }
 
 // ---------------------------------------------------------------------------

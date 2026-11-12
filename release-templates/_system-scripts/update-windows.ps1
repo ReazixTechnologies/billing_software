@@ -21,6 +21,14 @@ param([string]$InstallTo = '')
 $ErrorActionPreference = 'Stop'
 $Host.UI.RawUI.WindowTitle = 'Reazix Billing - Update'
 
+# When the app runs this (Update button), nobody can press Enter: the script
+# has no keyboard. Waiting for Enter there hung the update forever and the
+# app kept showing "Updating..." with the work already done. Only wait when
+# a person opened this script in a window.
+function Wait-Close {
+  if (-not [Console]::IsInputRedirected) { Read-Host '  Press Enter to close' | Out-Null }
+}
+
 $ScriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
 $SystemDir = $ScriptDir
 $RootDir   = Split-Path -Parent $ScriptDir
@@ -31,7 +39,7 @@ if ($InstallTo) {
   $SystemDir = Join-Path $RootDir '_system'
   if (($RootDir -eq $FromFolder.TrimEnd('\')) -or -not (Test-Path -LiteralPath (Join-Path $SystemDir 'server.js'))) {
     Write-Host "  ERROR: no installed copy of the app in $RootDir." -ForegroundColor Red
-    Read-Host '  Press Enter to close'
+    Wait-Close
     exit 1
   }
 }
@@ -70,14 +78,14 @@ try {
   Write-Host "  Latest: $tag"
 } catch {
   Write-Host "  ERROR: could not reach billing.reazix.com. Are you online?" -ForegroundColor Red
-  Read-Host '  Press Enter to close'
+  Wait-Close
   exit 1
 }
 
 # Only a signed release ZIP is installed (no unsigned fallback).
 if (-not $zipUrl -or -not $zipAsset.signature) {
   Write-Host "  ERROR: release $tag has no signed ZIP yet. Try again later. Nothing was changed." -ForegroundColor Red
-  Read-Host '  Press Enter to close'
+  Wait-Close
   exit 1
 }
 
@@ -96,14 +104,14 @@ $verifier = Join-Path $ScriptDir 'verify-update.cjs'
 if (-not $verifyNode -or -not (Test-Path -LiteralPath $verifier)) {
   Write-Host '  ERROR: could not check the update signature (Node.js or verify-update.cjs missing). Nothing was changed.' -ForegroundColor Red
   Remove-Item -Recurse -Force $tmp -ErrorAction SilentlyContinue
-  Read-Host '  Press Enter to close'
+  Wait-Close
   exit 1
 }
 & $verifyNode $verifier $zipPath $tag $zipAsset.signature
 if ($LASTEXITCODE -ne 0) {
   Write-Host '  ERROR: the update was refused because it is not signed by Reazix. Nothing was changed.' -ForegroundColor Red
   Remove-Item -Recurse -Force $tmp -ErrorAction SilentlyContinue
-  Read-Host '  Press Enter to close'
+  Wait-Close
   exit 1
 }
 
@@ -186,7 +194,7 @@ if (-not $npmOk) {
   Write-Host '  The new version is in place, but it is not ready to run yet (see above).' -ForegroundColor Red
   Write-Host '  Your data is safe (a backup was made above). Fix the problem shown,'
   Write-Host '  then open the app from its icon: it finishes the install by itself.'
-  Read-Host '  Press Enter to close'
+  Wait-Close
   exit 1
 }
 
@@ -197,4 +205,4 @@ Write-Host ''
 Write-Host '  [OK] Update complete!' -ForegroundColor Green
 Write-Host '  Restart the app (Stop Server -> Open App) to run the new version.'
 Write-Host ''
-Read-Host '  Press Enter to close'
+Wait-Close

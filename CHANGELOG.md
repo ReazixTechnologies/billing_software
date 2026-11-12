@@ -4,6 +4,28 @@ All notable changes to **Reazix Billing Software** are listed here.
 
 ---
 
+## [1.0.3] - 2026-11-12
+
+**Updates finish by themselves, on Windows and Mac.**
+
+### How to update
+
+**Current version:** 1.0.2  →  **New version:** 1.0.3
+
+Click **Update** in the app's menu. Your invoices and settings are kept.
+On Windows, if the app keeps showing "Updating…" for more than 3 minutes,
+close the app and open it again: the update is already installed. From the
+next update on, this does not happen.
+
+### Fixed
+- **Windows: Update no longer stays on "Updating…"** after the work is done.
+- **The app restarts by itself after an update** (Windows and Mac), and
+  opens in the new version. No need to close and open it.
+- **Mac: shortcut keys are shown with the Control key** (Control + Q, not
+  ⌘ + Q, which closes the browser). Both keys still work.
+
+---
+
 ## [1.0.2] - 2026-11-12
 
 **Shortcut keys, printing without the print window, and a roomier invoice screen.**

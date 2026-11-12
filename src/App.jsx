@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef, useMemo, lazy, Suspense } from 'react';
 import { Home, FileText, Settings, Plus, Users, Package, BarChart3, Wallet, RefreshCw, Receipt, BookOpen, Moon, Sun, Download, X, ShoppingCart, ChevronDown, Building2, Pencil, HelpCircle, Search, Command, Bell, Calculator, HardDrive, Menu, LifeBuoy, Banknote } from 'lucide-react';
-import { getAllProfiles, saveProfile, getEnabledModules, getMenuOrder, onMenuChanged, getAllBills, getAllProducts, getStockAlertSettings, getAllClients, runUpdateNow, getLockStatus } from './store';
+import { getAllProfiles, saveProfile, getEnabledModules, getMenuOrder, onMenuChanged, getAllBills, getAllProducts, getStockAlertSettings, getAllClients, runUpdateNow, restartAndReload, getLockStatus } from './store';
 import { isModuleEnabled, getUpcomingFilings, countsAsSales, localToday, toLocalIsoDate, DOCS_URL, findLowStock, trackedStock } from './utils';
 import { orderedMenu } from './utils/businessTypes';
 // v1.10.4 — Route-level lazy loading. Prior App.jsx synchronously
@@ -304,11 +304,14 @@ function App() {
     setUpdating(true);
     toast('Updating… your data is backed up first. This takes about a minute.', 'info', 8000);
     const result = await runUpdateNow();
-    setUpdating(false);
     if (result.ok) {
+      toast('Update installed. Restarting the app…', 'success', 10000);
+      if (await restartAndReload()) return;
+      setUpdating(false);
       setShowUpdateModal(false);
-      toast('Update finished. Reload the page to use the new version.', 'success', 10000);
+      toast('Update installed. Close the app and open it again to use the new version.', 'success', 15000);
     } else {
+      setUpdating(false);
       toast(`Update failed — ${result.error}`, 'error', 10000);
     }
   };
