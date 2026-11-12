@@ -25,6 +25,7 @@ import { spawn } from 'child_process';
 import { readFileSync } from 'fs';
 import { PDFDocument } from 'pdf-lib';
 import { setTimeout as sleep } from 'timers/promises';
+import { activateForTest } from '../license-tool/reazix-license.mjs';
 
 const results = [];
 let serverProc = null;
@@ -132,6 +133,9 @@ async function dismissFirstRun(page) {
 }
 
 const APP = await startServer();
+// The app needs a product key; give it one for this PC (Reazix PC only: it
+// signs with license-tool/private-key.pem).
+await activateForTest(APP);
 console.log(`\nRunning smoke tests against ${APP} (Firefox)\n`);
 
 // The suite changes the ACTIVE business profile several times, and the server
@@ -1187,6 +1191,9 @@ try {
   const billedTo = page.locator('.glass-panel').filter({ has: page.locator('h3.section-title', { hasText: 'Billed To' }) });
   const fieldGroup = (label) => billedTo.locator('.form-group').filter({ has: page.locator(`label.form-label:text-is("${label}")`) });
   const gstinInput = fieldGroup('GSTIN').locator('input');
+  // GSTIN sits behind the "Add address & GSTIN" toggle; open it first.
+  const detailsToggle = billedTo.getByRole('button', { name: /Add address & GSTIN/ });
+  if (await detailsToggle.count()) { await detailsToggle.click(); await sleep(300); }
   await gstinInput.fill('27AAPFU0939F1ZV');
   await page.keyboard.press('Tab');
   await sleep(600);
@@ -1644,7 +1651,10 @@ try {
     const B77 = await pdfLayout(1);
     await pickStyle('Classic');
     check('v77 #88 a one-item invoice is one PDF page in Tally style and Boxed grid',
-      !!T77?.onePage && !!B77?.onePage, JSON.stringify({ tally: T77?.onePage, boxed: B77?.onePage }));
+      !!T77?.onePage && !!B77?.onePage, JSON.stringify({
+        tally: T77?.onePage, boxed: B77?.onePage,
+        tallyRatio: T77 ? +(T77.total / T77.fullHeight).toFixed(3) : null, boxedRatio: B77 ? +(B77.total / B77.fullHeight).toFixed(3) : null,
+      }));
 
     // #85 stock report with Excel export
     await toView77('reports');

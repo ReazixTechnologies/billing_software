@@ -3,6 +3,7 @@ import { createRoot } from 'react-dom/client'
 import { registerSW } from 'virtual:pwa-register'
 import App from './App.jsx'
 import AppLockGate from './components/AppLock.jsx'
+import LicenseGate from './components/LicenseGate.jsx'
 import ErrorBoundary from './components/ErrorBoundary.jsx'
 import { toast } from './components/Toast.jsx'
 import { logProblem } from './utils/problemLog'
@@ -180,11 +181,13 @@ restorePrefs().then((restored) => {
       {/* v1.10.83 - two last lines against a white screen: around the
           PIN gate, and around the app inside it. */}
       <ErrorBoundary>
-        <AppLockGate>
-          <ErrorBoundary>
-            <App />
-          </ErrorBoundary>
-        </AppLockGate>
+        <LicenseGate>
+          <AppLockGate>
+            <ErrorBoundary>
+              <App />
+            </ErrorBoundary>
+          </AppLockGate>
+        </LicenseGate>
       </ErrorBoundary>
     </StrictMode>,
   )

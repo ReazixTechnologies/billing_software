@@ -3620,6 +3620,22 @@ html:not([data-theme="dark"]) .mobile-topbar .topbar-btn { background: rgba(15, 
 }
 .app-lock-help { font-size: 0.8rem; color: var(--text-muted); text-align: left; line-height: 1.5; }
 
+/* Product key screen (LicenseGate.jsx), built on the PIN lock card. */
+.license-card { max-width: 440px; }
+.license-card .form-label { align-self: flex-start; margin-top: 0.75rem; }
+.license-pc {
+  display: flex; align-items: center; justify-content: center; flex-wrap: wrap; gap: 0.5rem;
+  width: 100%; margin-top: 0.75rem; padding: 0.6rem 0.75rem;
+  border: 1px dashed var(--border-color, rgba(128, 128, 128, 0.4)); border-radius: 8px;
+}
+.license-pc strong { font-size: 1.15rem; letter-spacing: 0.08em; font-family: ui-monospace, Consolas, monospace; }
+.license-input { width: 100%; font-family: ui-monospace, Consolas, monospace; font-size: 0.8rem; word-break: break-all; resize: vertical; }
+.license-card .btn-primary { width: 100%; }
+.license-warning {
+  padding: 0.5rem 1rem; text-align: center; font-size: 0.85rem;
+  background: var(--warning, #b45309); color: #fff;
+}
+
 /* v1.10.81 - welcome note for new users (WelcomeCard.jsx). Dark first, as the
    rest of this file; light below. */
 .welcome-card {

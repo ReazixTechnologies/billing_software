@@ -36,6 +36,8 @@ async function apiFetch(url, options = {}) {
     const err = new Error(body?.error || `API error: ${res.status}`);
     err.status = res.status;
     err.body = body;
+    // 402: the product key ended while the app was open; show the key screen.
+    if (res.status === 402) window.dispatchEvent(new Event('reazix-license-needed'));
     if (res.status >= 500) {
       logApiProblem(options, url, res.status, err.message);
       err.problemLogged = true;
@@ -46,6 +48,10 @@ async function apiFetch(url, options = {}) {
 }
 
 // ---- PIN lock (v1.10.77, #84; checked by the server, see AppLock.jsx) ----
+// ---- Product key (checked by the server, see LicenseGate.jsx) ----
+export const getLicenseStatus = () => apiFetch(`${API}/license`);
+export const activateLicense = (key) => apiFetch(`${API}/license/activate`, { method: 'POST', body: JSON.stringify({ key }) });
+
 export const getLockStatus = () => apiFetch(`${API}/lock`);
 export const verifyPin = (pin) => apiFetch(`${API}/lock/verify`, { method: 'POST', body: JSON.stringify({ pin }) });
 // pin null turns the lock off. currentPin is needed when a PIN is already set.

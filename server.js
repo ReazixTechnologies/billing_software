@@ -4,6 +4,7 @@ import express from 'express';
 // where `cors()` echoed `*` for every origin.
 import fs from 'fs';
 import crypto from 'crypto';
+import { execFileSync } from 'child_process';
 import path from 'path';
 import { fileURLToPath } from 'url';
 // v1.10.31 — Data-F3.1: share computeInvoiceTotals with the client so
@@ -58,7 +59,14 @@ const app = express();
 // Origin pointing at http://localhost:<port>. Everything else is
 // rejected. The Vite dev server proxies /api → us so its origin is
 // also localhost.
+// The Host must be this PC too. Without it, a website whose name is made to
+// point at 127.0.0.1 (DNS rebinding) counts as "same page": its reads carry
+// no Origin, so it could read every invoice from the shop owner's browser.
+const LOCAL_HOST_RE = /^(localhost|127\.0\.0\.1|\[::1\])(:\d+)?$/i;
 app.use((req, res, next) => {
+  if (!LOCAL_HOST_RE.test(String(req.headers.host || ''))) {
+    return res.status(403).json({ error: 'Only this computer can open the app.' });
+  }
   const origin = req.headers.origin;
   const allow =
     !origin ||
@@ -114,6 +122,150 @@ try {
   try { fs.appendFileSync(path.join(DATA_DIR, 'errors.log'), `[${new Date().toISOString()}] [startup] ${why} ${err.code || ''}\n`, 'utf-8'); } catch { /* the folder is the problem */ }
   process.exit(1);
 }
+
+// ========================
+// PRODUCT KEY (licence)
+// ========================
+// The app works only with a product key from Reazix, entered once. A key is
+// signed with Reazix's private key (license-tool/, never shipped); the app
+// holds only the public key below, so a key cannot be made or changed without
+// Reazix. A key names the PC it works on (one per key) and is for life.
+// It is checked here, on the server, so hiding the screen in the browser does
+// not open the app. Stored in data/license.json, which updates never touch.
+const LICENSE_PUBLIC_KEY = crypto.createPublicKey({
+  key: Buffer.from('MCowBQYDK2VwAyEAQ/0B14EAPizBXnANQgnmkpR6c5oljRKXAqsCVLiHMlg=', 'base64'),
+  format: 'der', type: 'spki',
+});
+const LICENSE_PATH = path.join(DATA_DIR, 'license.json');
+const PC_ALPHABET = '0123456789ABCDEFGHJKMNPQRSTVWXYZ';
+
+// This PC's code: from the ID Windows / macOS / Linux give the machine, so it
+// stays the same across updates and reinstalls.
+let pcCodeCache = null;
+function machineId() {
+  try {
+    if (process.platform === 'win32') {
+      const out = execFileSync('reg', ['query', 'HKLM\\SOFTWARE\\Microsoft\\Cryptography', '/v', 'MachineGuid', '/reg:64'], { encoding: 'utf8', windowsHide: true });
+      const m = out.match(/MachineGuid\s+REG_SZ\s+(\S+)/i);
+      if (m) return m[1];
+    } else if (process.platform === 'darwin') {
+      const out = execFileSync('ioreg', ['-rd1', '-c', 'IOPlatformExpertDevice'], { encoding: 'utf8' });
+      const m = out.match(/"IOPlatformUUID"\s*=\s*"([^"]+)"/);
+      if (m) return m[1];
+    } else {
+      for (const f of ['/etc/machine-id', '/var/lib/dbus/machine-id']) {
+        if (fs.existsSync(f)) { const id = fs.readFileSync(f, 'utf8').trim(); if (id) return id; }
+      }
+    }
+  } catch { /* fall back below */ }
+  return `${os.hostname()}|${os.userInfo().username}`;
+}
+function pcCode() {
+  if (pcCodeCache) return pcCodeCache;
+  const hash = crypto.createHash('sha256').update(`reazix-billing|${machineId().toLowerCase()}`).digest();
+  let bits = 0n;
+  for (let i = 0; i < 8; i++) bits = (bits << 8n) | BigInt(hash[i]);
+  let code = '';
+  for (let i = 0; i < 12; i++) { code += PC_ALPHABET[Number(bits & 31n)]; bits >>= 5n; }
+  pcCodeCache = code.match(/.{4}/g).join('-');
+  return pcCodeCache;
+}
+const normPc = (c) => String(c || '').toUpperCase().replace(/[^0-9A-Z]/g, '');
+const localDay = (d = new Date()) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+
+// "RZX1.<payload>.<signature>", both base64url. Payload:
+// { id, n: shop name, p: [PC Codes], i: issued day, e?: last valid day YYYY-MM-DD,
+//   g?: GSTIN, b?: { address, city, state, pin }, c?: counter number }
+// Keys are lifetime (no e). An e, if a key ever carries one, is still honoured.
+function readProductKey(key) {
+  const parts = String(key || '').replace(/\s+/g, '').split('.');
+  if (parts.length !== 3 || parts[0] !== 'RZX1') return null;
+  try {
+    const body = Buffer.from(parts[1], 'base64url');
+    const ok = crypto.verify(null, Buffer.concat([Buffer.from('RZX1.'), body]), LICENSE_PUBLIC_KEY, Buffer.from(parts[2], 'base64url'));
+    if (!ok) return null;
+    const p = JSON.parse(body.toString('utf8'));
+    if (!p || !Array.isArray(p.p) || (p.e !== undefined && !/^\d{4}-\d{2}-\d{2}$/.test(p.e))) return null;
+    return p;
+  } catch { return null; }
+}
+
+// { state: 'active' | 'none' | 'invalid' | 'other-pc' | 'expired' | 'clock', ... }
+function licenseStatus() {
+  const pc = pcCode();
+  const saved = readJSON(LICENSE_PATH, null);
+  if (!saved?.key) return { state: 'none', pc };
+  const p = readProductKey(saved.key);
+  if (!p) return { state: 'invalid', pc };
+  const info = { pc, shop: p.n || '', until: p.e || null, keyId: p.id || '', business: keyBusiness(p), counter: Number(p.c) || null };
+  if (!p.p.map(normPc).includes(normPc(pc))) return { ...info, state: 'other-pc' };
+  if (!p.e) return { ...info, state: 'active', lifetime: true };
+  const today = localDay();
+  // The PC date set back to stretch a key: the app has already seen a later day.
+  if (saved.lastSeen && today < saved.lastSeen) {
+    const back = (new Date(saved.lastSeen) - new Date(today)) / 86400000;
+    if (back > 2) return { ...info, state: 'clock', lastSeen: saved.lastSeen };
+  }
+  if (!saved.lastSeen || today > saved.lastSeen) writeJSON(LICENSE_PATH, { ...saved, lastSeen: today });
+  if (today > p.e) return { ...info, state: 'expired' };
+  const daysLeft = Math.round((new Date(p.e) - new Date(today)) / 86400000) + 1;
+  return { ...info, state: 'active', daysLeft };
+}
+
+app.get('/api/license', (req, res) => res.json(licenseStatus()));
+
+app.post('/api/license/activate', (req, res) => {
+  const key = String(req.body?.key || '').replace(/\s+/g, '');
+  const p = readProductKey(key);
+  if (!p) return res.status(400).json({ ok: false, error: 'This product key is not valid. Check that you copied all of it.' });
+  if (!p.p.map(normPc).includes(normPc(pcCode()))) {
+    return res.status(400).json({ ok: false, error: `This key is for another PC. This PC's code is ${pcCode()}: send it to Reazix for a key.` });
+  }
+  if (p.e && localDay() > p.e) return res.status(400).json({ ok: false, error: `This key ended on ${p.e}. Contact Reazix to renew.` });
+  const old = readJSON(LICENSE_PATH, {}) || {};
+  writeJSON(LICENSE_PATH, { key, activatedAt: new Date().toISOString(), lastSeen: old.lastSeen && old.lastSeen > localDay() ? old.lastSeen : localDay() });
+  // A shop key fills in the invoice header, and a second (third...) counter
+  // gets its own invoice number prefix, C2, C3..., so no two counters ever
+  // print the same number.
+  if (keyBusiness(p)) writeJSON(PROFILE_PATH, lockProfile(readJSON(PROFILE_PATH, DEFAULT_PROFILE), keyBusiness(p)));
+  if (Number(p.c) >= 2) {
+    const meta = readJSON(META_PATH, {});
+    meta.invoiceNumberSettings = { ...(meta.invoiceNumberSettings || {}), format: 'branded', brandPrefix: `C${Number(p.c)}` };
+    writeJSON(META_PATH, meta);
+  }
+  return res.json({ ok: true, ...licenseStatus() });
+});
+
+// The shop details a key carries (name, GSTIN, address...), or null for a
+// key without them. These are fixed on this PC: the header cannot be changed
+// to another business, so a key cannot be passed on to another shop.
+function keyBusiness(p) {
+  if (!p || (!p.g && !p.b)) return null;
+  const b = (p.b && typeof p.b === 'object') ? p.b : {};
+  const out = { businessName: String(p.n || '') };
+  if (p.g) out.gstin = String(p.g).toUpperCase();
+  for (const k of ['address', 'city', 'state', 'pin']) if (b[k]) out[k] = String(b[k]);
+  return out;
+}
+const activeKeyBusiness = () => {
+  const st = licenseStatus();
+  return st.state === 'active' ? st.business : null;
+};
+const lockProfile = (prof, business) => (business ? { ...(prof || {}), ...business } : prof);
+
+// Without an active key only these answer: the key screen, the PIN screen,
+// settings restore, updates and the Control Panel (backup, stop, update).
+const LICENSE_OPEN = [/^\/api\/license(\/|$)/, /^\/api\/lock$/, /^\/api\/local-prefs$/, /^\/api\/check-update$/,
+  /^\/api\/version$/, /^\/api\/health$/, /^\/api\/control-panel\//, /^\/api\/client-errors$/];
+let licenseOkUntil = 0;
+app.use('/api', (req, res, next) => {
+  const full = `/api${req.path}`;
+  if (LICENSE_OPEN.some((re) => re.test(full))) return next();
+  if (Date.now() < licenseOkUntil) return next();
+  const st = licenseStatus();
+  if (st.state === 'active') { licenseOkUntil = Date.now() + 60_000; return next(); }
+  return res.status(402).json({ error: 'A valid product key is needed. Open the app to enter it.', license: st.state });
+});
 
 // Helper: safe filename from ID (replace slashes, etc.)
 function safeFileName(id) {
@@ -377,12 +529,13 @@ const DEFAULT_PROFILE = {
   logo: '', signature: '', upiId: '', googleClientId: '', googleDriveFolder: 'Reazix Billing Invoices',
 };
 
+// A product key with shop details keeps them in the header (lockProfile).
 app.get('/api/profile', (req, res) => {
-  res.json(readJSON(PROFILE_PATH, DEFAULT_PROFILE));
+  res.json(lockProfile(readJSON(PROFILE_PATH, DEFAULT_PROFILE), activeKeyBusiness()));
 });
 
 app.post('/api/profile', (req, res) => {
-  writeJSON(PROFILE_PATH, req.body);
+  writeJSON(PROFILE_PATH, lockProfile(req.body, activeKeyBusiness()));
   res.json({ success: true });
 });
 
@@ -713,13 +866,14 @@ app.delete('/api/cash-book/:id', (req, res) => {
 // BUSINESS PROFILES (multi-business)
 // ========================
 app.get('/api/profiles', (req, res) => {
-  const profiles = readAllFromDir('profiles');
+  const business = activeKeyBusiness();
+  const profiles = readAllFromDir('profiles').map((p) => lockProfile(p, business));
   profiles.sort((a, b) => (a.businessName || '').localeCompare(b.businessName || ''));
   res.json(profiles);
 });
 
 app.post('/api/profiles', (req, res) => {
-  const prof = req.body;
+  const prof = lockProfile(req.body, activeKeyBusiness());
   if (!prof.id) prof.id = 'biz_' + Date.now() + crypto.randomBytes(3).toString('hex');
   const filePath = path.join(DATA_DIR, 'profiles', safeFileName(prof.id) + '.json');
   writeJSON(filePath, prof);

@@ -574,7 +574,11 @@ function fitSpacersToOnePage(container, pageWmm, pageHmm, ps) {
   let over = container.scrollHeight - onePagePx + 3;
   const spacers = [...container.querySelectorAll('[data-pdf-spacer]')];
   const room = spacers.reduce((s, el) => s + el.getBoundingClientRect().height, 0);
-  if (over <= 3 || over > room) return () => {};
+  // A little more than the padding (up to 6% of a page) is trimmed too: with
+  // all the padding gone, the PDF step shrinks the last few % onto one page.
+  // A one-item Tally bill with full GST details was 2px past the padding and
+  // went to two pages.
+  if (over <= 3 || over > room + onePagePx * 0.06) return () => {};
   const undo = [];
   for (const el of spacers.reverse()) {
     if (over <= 0) break;
@@ -629,7 +633,7 @@ export default function InvoiceGenerator({ onBack, onStartNew, profile: profileP
   // narrower paper sizes (A5, thermal, custom) can be smaller so we honor
   // the preview element's natural offsetWidth when possible. Fallback to
   // 794 covers the moment before InvoicePreview has mounted. Scale is
-  // clamped 50-200% (matches the +/- limits so users don't get a "Fit"
+  // clamped 30-200% (matches the +/- limits so users don't get a "Fit"
   // that falls outside the range they can then tweak from).
   //
   // v1.10.33 (v2) — offsetWidth is LAYOUT width, unaffected by
@@ -646,7 +650,7 @@ export default function InvoiceGenerator({ onBack, onStartNew, profile: profileP
     const naturalWidth = preview?.offsetWidth || 794;
     if (!(paneWidth > 0 && naturalWidth > 0)) { setPreviewZoom(100); return; }
     const ratio = paneWidth / naturalWidth;
-    const nextZoom = Math.max(50, Math.min(200, Math.round(ratio * 100)));
+    const nextZoom = Math.max(30, Math.min(200, Math.round(ratio * 100)));
     setPreviewZoom(nextZoom);
   }, []);
   // v1.10.22 — reported: "sidebar menu toggle option so customer will get
@@ -5332,17 +5336,19 @@ export default function InvoiceGenerator({ onBack, onStartNew, profile: profileP
             padding: '0.55rem 0.85rem',
             background: 'var(--card-bg)',
             border: '1px solid var(--border)',
-            borderRadius: 999,
             marginBottom: '0.5rem',
             boxShadow: '0 2px 8px rgba(0, 0, 0, 0.03)',
             gap: '0.75rem',
+            // A narrow pane (laptop, wide form): the buttons wrap under the
+            // label instead of pushing the pane wider than the screen.
+            flexWrap: 'wrap', rowGap: '0.4rem', borderRadius: 18,
           }}>
             <span style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', fontSize: '0.75rem', color: 'var(--text-muted)', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.04em', minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
               <span style={{ fontSize: '0.85rem' }}>👁</span>
               Live preview
               <HelpButton title="The live preview" doc="invoices#preview" size={16} />
             </span>
-            <span style={{ display: 'flex', alignItems: 'center', gap: '0.35rem' }}>
+            <span style={{ display: 'flex', alignItems: 'center', gap: '0.35rem', flexWrap: 'wrap', justifyContent: 'flex-end', minWidth: 0 }}>
               {/* Segmented zoom cluster — three cells welded into one pill */}
               <div style={{
                 display: 'inline-flex', alignItems: 'center',
@@ -5352,7 +5358,7 @@ export default function InvoiceGenerator({ onBack, onStartNew, profile: profileP
                 overflow: 'hidden',
               }}>
                 <button type="button" title="Zoom out"
-                  onClick={() => setPreviewZoom(z => Math.max(50, z - 10))}
+                  onClick={() => setPreviewZoom(z => Math.max(30, z - 10))}
                   style={{ padding: '0.25rem 0.7rem', border: 'none', background: 'transparent', cursor: 'pointer', fontSize: '0.9rem', fontWeight: 700, color: 'var(--text)', lineHeight: 1 }}>−</button>
                 <span style={{ padding: '0.25rem 0.55rem', fontSize: '0.72rem', fontWeight: 700, color: 'var(--text)', minWidth: 42, textAlign: 'center', borderLeft: '1px solid var(--border)', borderRight: '1px solid var(--border)' }}>{previewZoom}%</span>
                 <button type="button" title="Zoom in"

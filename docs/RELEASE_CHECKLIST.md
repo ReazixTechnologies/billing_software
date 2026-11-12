@@ -88,7 +88,19 @@ Write for the person who reported it, not for the compiler.
 # 3. Build
 npm run release:zip
 
-# 4. Publish ONE ZIP, under the fixed name (from v1.10.76: two identical
+# 3b. Try the ZIP on ONE test PC (or one friendly shop) first: make an
+#     invoice, print it, open Settings and Reports. Only then go on.
+
+# 4. Build the website folder. This SIGNS the ZIP with
+#    license-tool/private-key.pem and writes updates/latest.json with the
+#    signature. Upload the folder's contents to billing.reazix.com.
+#    Since 1.0.2 the updaters (update-windows.ps1, update-unix.sh) install
+#    ONLY a ZIP whose signature verify-update.cjs accepts, so a hacked
+#    website cannot push its own files to the shops. An unsigned
+#    latest.json makes every shop's Update stop with "no signed ZIP".
+npm run site
+
+# 4b. (Optional) Also publish ONE ZIP on GitHub, under the fixed name (from v1.10.76: two identical
 #    ZIPs on a release confused people). The README's Download button links
 #    to releases/latest/download/Reazix-Billing.zip, which only resolves if
 #    the latest release has a file of exactly that name. The in-app and
@@ -109,6 +121,28 @@ curl -s https://billing.reazix.com/updates/latest.json \
 The tag and the asset filename must **both** match the new version. The
 updater shows the user `tag_name`, so a mismatch means every user is told
 the wrong version number.
+
+---
+
+## The master key (license-tool/private-key.pem)
+
+It signs every product key and every update. **Never** commit, email or
+upload it, and never put it on the website. It is git-ignored. If it is
+missing on the release PC, copy it from the backup pen drive. If it ever
+leaks, anyone can make product keys and fake updates: tell the team lead
+the same day. Interns do not need it.
+
+---
+
+## Updating the shops (interns)
+
+For each shop: open the app, click **Update** (or **Check for Updates** if
+the shop uses Offline mode), wait for the restart, check the version in the
+menu, make one test invoice and delete it, then tell the owner what is new
+(read them the CHANGELOG lines). Invoices, settings and the product key are
+kept: the update never touches the `data` folder and backs it up first. The
+shop is not asked for the product key again. If the update fails, nothing
+is changed: note the message on screen and send it to the team.
 
 ---
 

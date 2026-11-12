@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from 'react';
-import { getProfile, saveProfile, exportAllData, importData, inspectBackup, getTermsTemplates, saveTermsTemplate, deleteTermsTemplate, getAllProfiles, saveBusinessProfile, deleteBusinessProfile, getRegionMode, setRegionMode, getStockAlertSettings, saveStockAlertSettings, renameNumberSeries, getInvoiceDisplayOptions, saveInvoiceDisplayOptions, getCostCentres, saveCostCentres } from '../store';
+import { getProfile, saveProfile, getLicenseStatus, exportAllData, importData, inspectBackup, getTermsTemplates, saveTermsTemplate, deleteTermsTemplate, getAllProfiles, saveBusinessProfile, deleteBusinessProfile, getRegionMode, setRegionMode, getStockAlertSettings, saveStockAlertSettings, renameNumberSeries, getInvoiceDisplayOptions, saveInvoiceDisplayOptions, getCostCentres, saveCostCentres } from '../store';
 import { ensureToken, findOrCreateFolder, uploadJSON } from '../services/googleDrive';
 import { getCountryConfig, getStatesForCountry, validateTaxId, getCountriesForRegion, isModuleEnabled, getPaymentAccounts, createEmptyAccount, maskAccountNumber, reorderAccounts, setDefaultAccount, isValidUpiId, findSameBusiness, businessKeyOf, stockDelta, localToday } from '../utils';
 import { normaliseLutArn, isLikelyLutArn, lutFyOptions, fyOf } from '../utils/lut';
@@ -215,8 +215,19 @@ export default function SettingsView({ onSaved }) {
   const loadTemplates = async () => setTermsTemplates(await getTermsTemplates());
   const loadBusinessProfiles = async () => setBusinessProfiles(await getAllProfiles());
 
+  // Shop details that came with the product key are fixed (the server keeps
+  // them too): name, GSTIN and any address parts the key carries.
+  const [keyLocked, setKeyLocked] = useState(() => new Set());
+  useEffect(() => {
+    getLicenseStatus().then((st) => setKeyLocked(new Set(Object.keys(st?.business || {})))).catch(() => {});
+  }, []);
+  const lockedProps = (name) => (keyLocked.has(name)
+    ? { readOnly: true, title: 'Set by your product key. Contact Reazix to change it.', style: { opacity: 0.75, cursor: 'not-allowed' } }
+    : {});
+
   const handleChange = (e) => {
     const { name, value } = e.target;
+    if (keyLocked.has(name)) return;
     setProfile(prev => ({ ...prev, [name]: value }));
   };
 
@@ -1056,13 +1067,18 @@ export default function SettingsView({ onSaved }) {
       <form id="section-company" onSubmit={handleSave} className="glass-panel p-6 mb-6" ref={companyFormRef} style={{ order: 1 }}>
         <fieldset disabled={!profileLoaded} style={{ border: 0, padding: 0, margin: 0, minWidth: 0 }}>
         <h3 className="section-title">Company Details <HelpButton title="Company Details" doc="settings#company-details" size={16} style={{ marginLeft: 6 }} /></h3>
+        {keyLocked.size > 0 && (
+          <p className="text-muted" style={{ fontSize: '0.8rem', margin: '0 0 0.75rem' }}>
+            🔒 The business name, GSTIN and address come from your product key and cannot be changed here. Contact Reazix to change them.
+          </p>
+        )}
         {(() => {
           const cc = getCountryConfig(profile.country);
           return (
             <div className="grid grid-cols-2 gap-4">
               <div className="form-group full-width">
                 <label className="form-label">Business Name *</label>
-                <input required type="text" name="businessName" className="form-input" value={profile.businessName} onChange={handleChange} />
+                <input required type="text" name="businessName" className="form-input" value={profile.businessName} onChange={handleChange} {...lockedProps('businessName')} />
               </div>
               <div className="form-group">
                 <label className="form-label">Country</label>
@@ -1076,27 +1092,27 @@ export default function SettingsView({ onSaved }) {
               </div>
               <div className="form-group full-width">
                 <label className="form-label">Address</label>
-                <textarea rows="2" name="address" className="form-input" value={profile.address} onChange={handleChange} />
+                <textarea rows="2" name="address" className="form-input" value={profile.address} onChange={handleChange} {...lockedProps('address')} />
               </div>
               <div className="form-group">
                 <label className="form-label">City</label>
-                <input type="text" name="city" className="form-input" value={profile.city || ''} onChange={handleChange} placeholder="e.g. Mumbai" />
+                <input type="text" name="city" className="form-input" value={profile.city || ''} onChange={handleChange} placeholder="e.g. Mumbai" {...lockedProps('city')} />
               </div>
               <div className="form-group">
                 <label className="form-label">{cc.postalLabel}</label>
-                <input type="text" name="pin" className="form-input" value={profile.pin || ''} onChange={handleChange} placeholder={cc.postalLabel} />
+                <input type="text" name="pin" className="form-input" value={profile.pin || ''} onChange={handleChange} placeholder={cc.postalLabel} {...lockedProps('pin')} />
               </div>
               <div className="form-group">
                 <label className="form-label">{cc.stateLabel}</label>
                 {(() => {
                   const stateOpts = getStatesForCountry(profile.country || 'India');
                   return stateOpts.length > 0 ? (
-                    <select name="state" className="form-input" value={profile.state} onChange={handleChange}>
+                    <select name="state" className="form-input" value={profile.state} onChange={handleChange} disabled={keyLocked.has('state')}>
                       <option value="">Select {cc.stateLabel}</option>
                       {stateOpts.map(s => <option key={s} value={s}>{s}</option>)}
                     </select>
                   ) : (
-                    <input type="text" name="state" className="form-input" value={profile.state || ''} onChange={handleChange} placeholder={cc.stateLabel} />
+                    <input type="text" name="state" className="form-input" value={profile.state || ''} onChange={handleChange} placeholder={cc.stateLabel} {...lockedProps('state')} />
                   );
                 })()}
               </div>
@@ -1107,7 +1123,7 @@ export default function SettingsView({ onSaved }) {
                   value={profile.gstin}
                   onChange={(e) => { handleChange(e); if (taxIdWarning) setTaxIdWarning(''); }}
                   onBlur={handleTaxIdBlur}
-                  placeholder={cc.taxIdPlaceholder} maxLength={20} />
+                  placeholder={cc.taxIdPlaceholder} maxLength={20} {...lockedProps('gstin')} />
                 {taxIdWarning && <small style={{ color: '#d97706', fontSize: '0.7rem', display: 'block', marginTop: '0.2rem' }}>⚠ {taxIdWarning}</small>}
               </div>
               <div className="form-group">

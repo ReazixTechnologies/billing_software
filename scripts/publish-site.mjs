@@ -7,6 +7,7 @@
 //      npm run site -- --zip=/path/to/Reazix-Billing-v1.0.0.zip
 
 import { execFileSync } from 'child_process';
+import { createHash, createPrivateKey, sign } from 'crypto';
 import { cpSync, existsSync, mkdirSync, readFileSync, rmSync, writeFileSync, copyFileSync } from 'fs';
 import { dirname, join, resolve } from 'path';
 import { fileURLToPath } from 'url';
@@ -49,6 +50,23 @@ if (!top || top[1] !== version) {
   console.error(`  x CHANGELOG.md must start with "## [${version}] - YYYY-MM-DD"`);
   process.exit(1);
 }
+// The ZIP is signed with Reazix's private key (license-tool/, never on the
+// website). The app's updater checks it with verify-update.cjs, so a ZIP
+// swapped on a hacked website is refused by every shop.
+if (!existsSync(zip)) {
+  console.error('  x No release ZIP to sign: run npm run release:zip first.');
+  process.exit(1);
+}
+const PRIVATE_KEY_PATH = join(ROOT, 'license-tool', 'private-key.pem');
+if (!existsSync(PRIVATE_KEY_PATH)) {
+  console.error('  x license-tool/private-key.pem is missing: copy it from the backup pen drive. Updates cannot be published unsigned.');
+  process.exit(1);
+}
+const zipBytes = readFileSync(zip);
+const zipSha = createHash('sha256').update(zipBytes).digest('hex');
+const signature = sign(null, Buffer.from(`RZXUPD1|v${version}|${zipSha}`), createPrivateKey(readFileSync(PRIVATE_KEY_PATH))).toString('base64');
+console.log(`  ✓ ZIP signed (sha256 ${zipSha.slice(0, 12)}…)`);
+
 mkdirSync(join(OUT, 'updates'), { recursive: true });
 writeFileSync(join(OUT, 'updates', 'latest.json'), `${JSON.stringify({
   tag_name: `v${version}`,
@@ -56,7 +74,11 @@ writeFileSync(join(OUT, 'updates', 'latest.json'), `${JSON.stringify({
   body: top[3].trim(),
   html_url: `${SITE}/help/support.html#whats-new`,
   published_at: `${top[2]}T00:00:00Z`,
-  assets: [{ name: `Reazix-Billing-v${version}.zip`, browser_download_url: `${SITE}/download/Reazix-Billing-v${version}.zip` }],
+  assets: [{
+    name: `Reazix-Billing-v${version}.zip`,
+    browser_download_url: `${SITE}/download/Reazix-Billing-v${version}.zip`,
+    size: zipBytes.length, sha256: zipSha, signature,
+  }],
 }, null, 2)}\n`);
 console.log(`  ✓ updates/latest.json   v${version}`);
 
