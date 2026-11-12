@@ -1127,6 +1127,12 @@ app.post('/api/import', (req, res) => {
         const added = data.meta.costCentres.filter((c) => c?.id && !have.has(c.id));
         if (added.length) meta.costCentres = [...(meta.costCentres || []), ...added];
       }
+      // and the backup's staff this PC does not have.
+      if (Array.isArray(data.meta.staff)) {
+        const have = new Set((meta.staff || []).map((s) => s?.id));
+        const added = data.meta.staff.filter((s) => s?.id && !have.has(s.id));
+        if (added.length) meta.staff = [...(meta.staff || []), ...added];
+      }
       for (const [k, v] of Object.entries(data.meta)) {
         if (k.startsWith('counter_') && Number(v) > (Number(meta[k]) || 0)) meta[k] = Number(v);
       }

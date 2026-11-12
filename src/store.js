@@ -107,6 +107,16 @@ export const saveCostCentres = (list) => apiFetch(`${API}/meta/costCentres`, {
   method: 'POST', body: JSON.stringify({ value: list || [] }),
 });
 
+// Staff of every business, one list in meta.json (utils/staff.js):
+// [{ id, name, phone, role, joined, commission, active, business }].
+export const getStaff = async () => {
+  const { value } = await apiFetch(`${API}/meta/staff`);
+  return Array.isArray(value) ? value : [];
+};
+export const saveStaff = (list) => apiFetch(`${API}/meta/staff`, {
+  method: 'POST', body: JSON.stringify({ value: list || [] }),
+});
+
 // ---- Stock-alert Settings ----
 // Master on/off for the low-stock alert + the threshold below which a product
 // counts as "low". Stored at app level (not per-business profile) because the

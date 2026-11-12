@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from 'react';
-import { getProfile, saveProfile, getLicenseStatus, exportAllData, importData, inspectBackup, getTermsTemplates, saveTermsTemplate, deleteTermsTemplate, getAllProfiles, saveBusinessProfile, deleteBusinessProfile, getRegionMode, setRegionMode, getStockAlertSettings, saveStockAlertSettings, renameNumberSeries, getInvoiceDisplayOptions, saveInvoiceDisplayOptions, getCostCentres, saveCostCentres } from '../store';
+import { getProfile, saveProfile, getLicenseStatus, exportAllData, importData, inspectBackup, getTermsTemplates, saveTermsTemplate, deleteTermsTemplate, getAllProfiles, saveBusinessProfile, deleteBusinessProfile, getRegionMode, setRegionMode, getStockAlertSettings, saveStockAlertSettings, renameNumberSeries, getInvoiceDisplayOptions, saveInvoiceDisplayOptions, getCostCentres, saveCostCentres, getStaff, saveStaff } from '../store';
 import { ensureToken, findOrCreateFolder, uploadJSON } from '../services/googleDrive';
 import { getCountryConfig, getStatesForCountry, validateTaxId, getCountriesForRegion, isModuleEnabled, getPaymentAccounts, createEmptyAccount, maskAccountNumber, reorderAccounts, setDefaultAccount, isValidUpiId, findSameBusiness, businessKeyOf, stockDelta, localToday } from '../utils';
 import { normaliseLutArn, isLikelyLutArn, lutFyOptions, fyOf } from '../utils/lut';
@@ -22,6 +22,7 @@ import PrivacyInternet from './PrivacyInternet';
 import CostCentreSettings from './CostCentreSettings';
 import { BusinessTypePanel, FeaturesPanel, useFeatureDraft } from './FeatureSettings';
 import { rekeyCentres } from '../utils/costCentres';
+import { rekeyStaff } from '../utils/staff';
 import InvoiceNumberSettings from './InvoiceNumberSettings';
 import SignatureImages, { SIGN_LAYOUTS } from './SignatureImages';
 import { PURPOSE_CODES } from '../utils/purposeCodes';
@@ -452,6 +453,10 @@ export default function SettingsView({ onSaved }) {
       if (oldKey && newKey && oldKey !== newKey) {
         await getCostCentres()
           .then((list) => list.some((c) => c.business === oldKey) && saveCostCentres(rekeyCentres(list, oldKey, newKey)))
+          .catch(() => {});
+        // and its staff.
+        await getStaff()
+          .then((list) => list.some((s) => s.business === oldKey) && saveStaff(rekeyStaff(list, oldKey, newKey)))
           .catch(() => {});
       }
       // v1.10.16 — reported: "uploaded logo and saved but it's not showing on

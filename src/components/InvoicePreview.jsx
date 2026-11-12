@@ -427,7 +427,6 @@ const InvoicePreview = React.forwardRef(({ profile: profileProp, client, details
             {showGSTIN && client?.gstin && <p>{clientTaxIdLabel}: <strong>{client.gstin}</strong></p>}
             {showClientEmail && client?.email && <p>{client.email}</p>}
             {showClientPhone && client?.phone && <p>Ph: {client.phone}</p>}
-            {details?.attendedBy?.trim() && <p>Attended by: {details.attendedBy.trim()}</p>}
           </div>
         </div>
         {shipDifferent && (
@@ -675,7 +674,6 @@ const InvoicePreview = React.forwardRef(({ profile: profileProp, client, details
           )}
           {client?.gstin && <div>{cap(`${clientTaxIdLabel}: ${client.gstin}`)}</div>}
           {client?.phone && <div>{cap('Ph: ' + client.phone)}</div>}
-          {details?.attendedBy?.trim() && <div>{cap('Attended by: ' + details.attendedBy.trim())}</div>}
         </div>
 
         {einv && (

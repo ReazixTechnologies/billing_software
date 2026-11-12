@@ -2,11 +2,12 @@ import { useState, useEffect, useRef, useCallback, useMemo, memo } from 'react';
 import { Maximize2, ArrowLeft, Plus, Trash2, Download, UserPlus, Pencil, Settings, ChevronUp, ChevronDown, MessageCircle, Check, Loader, Truck, Printer, Eye, EyeOff, QrCode, ScanBarcode } from 'lucide-react';
 import { jsPDF } from 'jspdf';
 import html2canvas from 'html2canvas';
-import { saveBill, deleteBill, applyStockChanges, getNextInvoiceNumber, getTermsTemplates, getAllClients, saveClient, getProfile, getAllProducts, getInvoiceDisplayOptions, saveInvoiceDisplayOptions, getAllProfiles, getRegionMode, saveRecurring, getAllRecurring, getAllBills, getEnabledModules, getBusinessType } from '../store';
+import { saveBill, deleteBill, applyStockChanges, getNextInvoiceNumber, getTermsTemplates, getAllClients, saveClient, getProfile, getAllProducts, getInvoiceDisplayOptions, saveInvoiceDisplayOptions, getAllProfiles, getRegionMode, saveRecurring, getAllRecurring, getAllBills, getEnabledModules, getBusinessType, getStaff } from '../store';
 import { INVOICE_TYPES, isModuleEnabled, businessKeyOf, GST_DOC_NUMBER, COUNTRIES, printedSubtotal, deliveryChargeLine, stockEffect, appliedStock, stockDelta, generateEWayBillJSON, formatCurrency, getCountryConfig, getStatesForCountry, getAllUnits, addCustomUnit, removeCustomUnit, getCountriesForRegion, TDS_SECTIONS, TCS_SECTIONS, REMOVED_TCS_SECTIONS, TERMS_PRESETS, getActiveAccounts, getDefaultAccount, getAccountById, getDefaultUnitForMode, filterUnitsByMode, PAPER_SIZES, getPaperSize, computeInvoiceTotals, clientYearToDate, htmlHasText, ORDER_DETAIL_FIELDS, invoiceOptionOn, DEFAULT_DECLARATION, decodeGstin, safePageBoundaries, localToday, toLocalIsoDate, parseLocalDate, paymentStatusFor, getStateCode, amountDue, SALES_INVOICE_TYPES } from '../utils';
 import { getPrintSettings, savePrintSettings } from '../utils/printSettings';
 import { getDirectPrinter, printPdfDirect } from '../utils/directPrint';
 import { getEnterMovesNext, isEnterField, markEnterMayMove } from '../utils/shortcuts';
+import { staffForBusiness } from '../utils/staff';
 import { openWhatsAppShare } from '../utils/share';
 import { confirmAction, promptAction } from './ConfirmModal';
 import { useCostCentres } from './useCostCentres';
@@ -246,6 +247,34 @@ const PDF_STYLES = [
 const currencySymbolFor = (code) =>
   COUNTRIES.find(c => c.currency === (code || 'INR'))?.currencySymbol || code || '₹';
 
+// Shift+Enter in an item row: leave the items and put the cursor on the
+// Payment card (the Unpaid / Paid choice that is on). A document without a
+// Payment card (quotation, challan...) goes to Invoice Details, or else the
+// first box after the items. Returns false when there is nowhere to go, so
+// the key is left alone.
+function jumpPastItems() {
+  const pay = document.querySelector('[data-invoice-payment]');
+  let target = pay && (pay.querySelector('[role="radio"][aria-checked="true"]:not(:disabled)')
+    || pay.querySelector('button:not(:disabled), input:not(:disabled), select:not(:disabled)'));
+  if (!target) {
+    target = Array.from(document.querySelectorAll('[data-invoice-details] input, [data-invoice-details] select, [data-invoice-details] textarea')).find(isEnterField);
+  }
+  if (!target) {
+    const rows = document.querySelectorAll('.line-item-row');
+    const last = rows[rows.length - 1];
+    const scope = last?.closest('.main-content');
+    if (scope) {
+      target = Array.from(scope.querySelectorAll('input, select, textarea'))
+        .find((el) => isEnterField(el) && (last.compareDocumentPosition(el) & Node.DOCUMENT_POSITION_FOLLOWING) && !last.contains(el));
+    }
+  }
+  if (!target) return false;
+  target.focus({ preventScroll: true });
+  target.scrollIntoView({ block: 'center', behavior: 'smooth' });
+  if (target.tagName === 'INPUT' && typeof target.select === 'function') { try { target.select(); } catch { /* not selectable */ } }
+  return true;
+}
+
 // v1.10.37 — Sub-component: the Description input + product-suggestion
 // dropdown, with keyboard navigation. Extracted so LineItem stays lean
 // and the local `activeIdx` state doesn't cause other row fields to
@@ -342,6 +371,13 @@ const LineItem = memo(function LineItem({
   // fields) and only fires on isLastRow to avoid Enter-mashing on
   // middle rows creating trailing empty rows.
   const handleRowKeyDown = (e) => {
+    // Shift+Enter in any box of any row: done with the items, go to Payment.
+    // The description box keeps Shift+Enter as a line break.
+    if (e.key === 'Enter' && e.shiftKey && !e.ctrlKey && !e.metaKey && !e.altKey && !e.nativeEvent?.isComposing) {
+      if (e.target.closest?.('.line-item-description-row')) return;
+      if (jumpPastItems()) { e.preventDefault(); e.stopPropagation(); }
+      return;
+    }
     if (e.key !== 'Enter' || e.shiftKey || !isLastRow) return;
     // Only fire when the input has SOME meaningful content in the
     // row, so an accidental Enter on a completely blank row doesn't
@@ -605,6 +641,15 @@ export default function InvoiceGenerator({ onBack, onStartNew, profile: profileP
   const [allProfiles, setAllProfiles] = useState([]);
   const [activeProfile, setActiveProfile] = useState(profileProp);
   const profile = activeProfile || profileProp;
+  // Staff names suggested in Attended By (Staff screen); none when it is off.
+  const [staffNames, setStaffNames] = useState([]);
+  useEffect(() => {
+    if (!isModuleEnabled('staff', getEnabledModules())) return;
+    getStaff().then((list) => setStaffNames(staffForBusiness(list, profile)
+      .filter((s) => s.active !== false).map((s) => s.name).sort((a, b) => a.localeCompare(b)))).catch(() => {});
+  }, [profile]);
+  // The Attended By list: open while typing, idx = the highlighted name.
+  const [staffPick, setStaffPick] = useState({ open: false, idx: -1 });
   const [invoiceType, setInvoiceType] = useState(draft?.invoiceType || 'tax-invoice');
   // email/phone/isSEZ must be part of initial state — otherwise the SEZ flag
   // set inside ClientModal is silently discarded on save, and reopening the
@@ -697,6 +742,15 @@ export default function InvoiceGenerator({ onBack, onStartNew, profile: profileP
     // Optional: the staff member who attended the client. Prints only when filled.
     attendedBy: '',
   });
+  // Staff whose name contains what is typed in Attended By (up to 6). None
+  // once the box holds exactly one staff name, so a picked name closes it.
+  const staffMatches = useMemo(() => {
+    const q = (details.attendedBy || '').trim().toLowerCase();
+    if (!staffPick.open || !q) return [];
+    const hits = staffNames.filter((n) => n.toLowerCase().includes(q));
+    if (hits.length === 1 && hits[0].toLowerCase() === q) return [];
+    return hits.sort((a, b) => b.toLowerCase().startsWith(q) - a.toLowerCase().startsWith(q)).slice(0, 6);
+  }, [details.attendedBy, staffNames, staffPick.open]);
   // v1.10.83 (#112) - optional cost centre, kept in details.costCentre /
   // costCentreName so drafts, edits and duplicates carry it. Not printed.
   const { on: ccOn, centres } = useCostCentres(profile);
@@ -4641,9 +4695,49 @@ export default function InvoiceGenerator({ onBack, onStartNew, profile: profileP
               </div>
               <div className="form-group">
                 <label className="form-label" htmlFor="attended-by">Attended By <span style={{ color: 'var(--text-muted)', fontWeight: 400 }}>(optional)</span></label>
-                <input id="attended-by" type="text" className="form-input" value={details.attendedBy || ''}
-                  onChange={(e) => setDetails(prev => ({ ...prev, attendedBy: e.target.value }))}
-                  placeholder="Staff who attended the client" />
+                <div style={{ position: 'relative' }}>
+                  <input id="attended-by" type="text" className="form-input" value={details.attendedBy || ''} autoComplete="off"
+                    role="combobox" aria-expanded={staffMatches.length > 0} aria-controls="attended-by-list"
+                    onChange={(e) => { setDetails(prev => ({ ...prev, attendedBy: e.target.value })); setStaffPick({ open: true, idx: -1 }); }}
+                    onBlur={() => setStaffPick({ open: false, idx: -1 })}
+                    onKeyDown={(e) => {
+                      // Same keys as Client Name: arrows move, Enter picks the
+                      // highlighted name, Esc closes. Enter with nothing
+                      // highlighted moves on to the next box as usual.
+                      if (!staffMatches.length) return;
+                      if (e.key === 'ArrowDown') {
+                        e.preventDefault();
+                        setStaffPick(p => ({ open: true, idx: (p.idx + 1) % staffMatches.length }));
+                      } else if (e.key === 'ArrowUp') {
+                        e.preventDefault();
+                        setStaffPick(p => ({ open: true, idx: p.idx <= 0 ? staffMatches.length - 1 : p.idx - 1 }));
+                      } else if (e.key === 'Enter' && !e.shiftKey) {
+                        if (staffPick.idx >= 0 && staffMatches[staffPick.idx]) {
+                          e.preventDefault();
+                          setDetails(prev => ({ ...prev, attendedBy: staffMatches[staffPick.idx] }));
+                        }
+                        setStaffPick({ open: false, idx: -1 });
+                      } else if (e.key === 'Escape') {
+                        setStaffPick({ open: false, idx: -1 });
+                      }
+                    }}
+                    placeholder="Staff who attended the client" />
+                  {staffMatches.length > 0 && (
+                    <div className="client-suggestions" id="attended-by-list" role="listbox">
+                      {staffMatches.map((n, i) => (
+                        <div key={n} className="client-suggestion-row" role="option" aria-selected={i === staffPick.idx}
+                          style={i === staffPick.idx ? { background: 'var(--primary-light, rgba(30,64,175,0.12))' } : undefined}>
+                          <button type="button" className="client-suggestion-item" tabIndex={-1}
+                            onMouseDown={(e) => e.preventDefault()}
+                            onMouseEnter={() => setStaffPick(p => ({ ...p, idx: i }))}
+                            onClick={() => { setDetails(prev => ({ ...prev, attendedBy: n })); setStaffPick({ open: false, idx: -1 }); }}>
+                            <div className="client-suggestion-main"><strong>{n}</strong></div>
+                          </button>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
               </div>
               <div className="form-group full-width" style={{ marginTop: '-0.25rem' }}>
                 <button type="button" onClick={() => setShowClientDetails(v => !v)}
@@ -4846,7 +4940,31 @@ export default function InvoiceGenerator({ onBack, onStartNew, profile: profileP
             const isPaid = paymentInfo.status === 'paid';
             const chip = { padding: '0.35rem 0.9rem', fontSize: '0.85rem' };
             return (
-              <div className="glass-panel p-6 mb-6">
+              <div className="glass-panel p-6 mb-6" data-invoice-payment="" onKeyDown={(e) => {
+                // Keyboard flow (MARG style): Enter on a choice moves to the
+                // next one and picks it: Unpaid → Paid → UPI → Cash →
+                // UPI + Cash → Bank (then back to Unpaid). Shift+Enter leaves
+                // Payment for Invoice Details. Enter in the amount boxes is
+                // left to "Enter moves to the next box".
+                if (e.key !== 'Enter' || e.ctrlKey || e.metaKey || e.altKey || e.nativeEvent?.isComposing) return;
+                if (e.shiftKey) {
+                  const box = Array.from(document.querySelectorAll('[data-invoice-details] input, [data-invoice-details] select, [data-invoice-details] textarea')).find(isEnterField);
+                  if (!box) return;
+                  e.preventDefault();
+                  box.focus({ preventScroll: true });
+                  box.scrollIntoView({ block: 'center', behavior: 'smooth' });
+                  if (box.tagName === 'INPUT') { try { box.select(); } catch { /* not selectable */ } }
+                  return;
+                }
+                if (e.target.getAttribute?.('role') !== 'radio') return;
+                const choices = Array.from(e.currentTarget.querySelectorAll('[role="radio"]:not(:disabled)'));
+                const i = choices.indexOf(e.target);
+                if (i < 0) return;
+                e.preventDefault();
+                const next = choices[(i + 1) % choices.length];
+                next.focus();
+                next.click();
+              }}>
                 <h3 className="section-title">Payment</h3>
                 <fieldset disabled={readOnlyDoc} style={{ border: 0, padding: 0, margin: 0 }}>
                   <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap', alignItems: 'center' }} role="radiogroup" aria-label="Payment status">
@@ -4905,7 +5023,7 @@ export default function InvoiceGenerator({ onBack, onStartNew, profile: profileP
           })()}
 
           {/* Invoice Details */}
-          <div className="glass-panel p-6 mb-6">
+          <div className="glass-panel p-6 mb-6" data-invoice-details="">
             <h3 className="section-title">Invoice Details <HelpButton title="Invoice Details" doc="invoices#details" size={16} /></h3>
             <div className="grid grid-cols-2 gap-4">
               <div className="form-group">

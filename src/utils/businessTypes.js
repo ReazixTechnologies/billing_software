@@ -16,7 +16,7 @@ export const SWITCHABLE_MODULES = FEATURE_GROUPS.flatMap(g => g.modules).filter(
 // Menu helpers every type keeps: they are about the app, not the business.
 const APP_HELPERS = ['guide', 'notifications', 'darkMode', 'controlPanel', 'offlineButton'];
 // Every type sells, and every business handles cash (the cash book).
-const SELLING = ['receipts', 'cashBook', 'reports', 'gstReturns', 'incomeTax', 'upiQr', 'googleDrive'];
+const SELLING = ['receipts', 'cashBook', 'reports', 'gstReturns', 'incomeTax', 'staff', 'upiQr', 'googleDrive'];
 const GOODS = ['inventory', 'purchases', 'expenses'];
 const TRADING = [...GOODS, 'purchaseOrders', 'gstr2b', 'ewayBill', 'tdsTcs'];
 
