@@ -44,6 +44,7 @@ import { isOfflineMode } from './utils/offlineMode';
 import HelpButton from './components/HelpButton';
 import { lockNow } from './utils/appLock';
 import { getPrintSettings } from './utils/printSettings';
+import { SHORTCUT_ACTIONS, FIXED_SHORTCUTS, getShortcutKeys, onShortcutKeysChange, comboFromEvent, formatCombo, getEnterMovesNext, isEnterField, nextFieldAfter } from './utils/shortcuts';
 
 const openDocs = () => window.open(DOCS_URL, '_blank', 'noopener,noreferrer');
 
@@ -454,7 +455,11 @@ function App() {
   // New Invoice brings back an invoice that was being typed and not saved yet
   // (left for Products, Clients, ...), so nothing filled in is lost. "Clear
   // form" on the invoice screen starts a blank one (startBlankInvoice).
-  const handleNewInvoice = () => {
+  // Alt+C (MARG "sales challan") opens a new invoice already set to Delivery
+  // Challan; every other way in starts as the usual type.
+  const [newInvoiceType, setNewInvoiceType] = useState(null);
+  const handleNewInvoice = (type) => {
+    setNewInvoiceType(typeof type === 'string' ? type : null); // onClick passes an event
     let resume = false;
     try { resume = !!JSON.parse(sessionStorage.getItem('gst_invoiceDraft') || 'null')?.resumable; } catch { /* no draft */ }
     setEditorKey((k) => k + 1);
@@ -463,6 +468,7 @@ function App() {
     setCurrentView('new');
   };
   const startBlankInvoice = () => {
+    setNewInvoiceType(null);
     try { sessionStorage.removeItem('gst_invoiceDraft'); } catch { /* sandboxed */ }
     setEditorKey((k) => k + 1);
     setEditingBill(null);
@@ -707,6 +713,101 @@ function App() {
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
     // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // MARG-style shortcut keys (utils/shortcuts.js; changed in Settings ›
+  // Shortcut keys). One listener; it reads the latest keys and screens
+  // through refs so it never has to be re-attached.
+  const shortcutKeysRef = useRef(getShortcutKeys());
+  const [shortcutKeys, setShortcutKeys] = useState(() => getShortcutKeys());
+  const enterMovesRef = useRef(getEnterMovesNext());
+  useEffect(() => onShortcutKeysChange(() => {
+    shortcutKeysRef.current = getShortcutKeys();
+    setShortcutKeys(shortcutKeysRef.current);
+    enterMovesRef.current = getEnterMovesNext();
+  }), []);
+
+  // Enter moves to the next box (Settings › Shortcut keys, on by default):
+  // Client Name → Phone No. → Attended By → Scan barcode → Item → Qty → ...
+  // Runs after the box's own handlers, so a box that uses Enter itself
+  // (suggestion pick, barcode scan, new item row) keeps doing that.
+  useEffect(() => {
+    const onKey = (e) => {
+      if (e.key !== 'Enter' || e.shiftKey || e.ctrlKey || e.metaKey || e.altKey || e.isComposing) return;
+      if (!enterMovesRef.current) return;
+      if (e.defaultPrevented && !e.enterMayMove) return; // used by the box itself
+      const t = e.target;
+      if (!t || t.isContentEditable || !isEnterField(t)) return;
+      if (t.tagName === 'TEXTAREA' && !e.enterMayMove) return; // a line break there
+      const next = nextFieldAfter(t);
+      if (!next) return; // last box: Enter submits the form as usual
+      e.preventDefault();
+      next.focus();
+      if (next.tagName === 'INPUT' && typeof next.select === 'function' && /^(text|number|tel|email|search|url)$/i.test(next.type || 'text')) {
+        try { next.select(); } catch { /* not selectable */ }
+      }
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, []);
+  const shortcutCtx = useRef({});
+  useEffect(() => { shortcutCtx.current = { navItems, handleNewInvoice }; });
+  useEffect(() => {
+    const goTo = (view, label) => {
+      if (!(shortcutCtx.current.navItems || []).some((i) => i.id === view)) {
+        toast(`${label} is turned off. Turn it on in Settings › Features.`, 'info');
+        return;
+      }
+      setCurrentView(view);
+    };
+    const onKey = (e) => {
+      if (e.defaultPrevented || e.repeat) return;
+      const combo = comboFromEvent(e);
+      if (!combo) return;
+      const keys = shortcutKeysRef.current;
+      const action = SHORTCUT_ACTIONS.find((a) => keys[a.id] && keys[a.id] === combo);
+      if (!action) return;
+      // Ctrl+I in a rich-text box (terms, notes) stays italic.
+      if (e.target?.isContentEditable && /^Ctrl\+[A-Z]$/.test(combo)) return;
+      // Settings › Shortcut keys is recording a new key: leave it alone.
+      if (e.target?.closest?.('[data-shortcut-recorder]')) return;
+      const modalOpen = !!document.querySelector('.modal-overlay');
+      if (action.screen) {
+        // Press the matching button on the screen that is open, as a click
+        // would. Not behind an open window, and only a button you can see.
+        if (modalOpen) return;
+        const btn = Array.from(document.querySelectorAll(`[data-shortcut="${action.id}"]`))
+          .find((b) => !b.disabled && b.offsetParent !== null);
+        if (!btn) return;
+        e.preventDefault();
+        btn.click();
+        return;
+      }
+      e.preventDefault();
+      if (modalOpen && action.id !== 'help') return;
+      switch (action.id) {
+        // The new invoice opens with the cursor in Client Name (read once by
+        // InvoiceGenerator), so typing can start straight away.
+        case 'newSale':
+          try { sessionStorage.setItem('reazix_focusClientName', '1'); } catch { /* storage blocked */ }
+          shortcutCtx.current.handleNewInvoice(); break;
+        case 'challan':
+          try { sessionStorage.setItem('reazix_focusClientName', '1'); } catch { /* storage blocked */ }
+          shortcutCtx.current.handleNewInvoice('delivery-challan'); break;
+        case 'modifySale': setCurrentView('dashboard'); break;
+        case 'help': setShowShortcutsHelp((s) => !s); break;
+        case 'lock':
+          getLockStatus().then((st) => {
+            if (st?.enabled) lockNow();
+            else toast('Set a PIN in Settings › App lock to lock the app.', 'info');
+          }).catch(() => {});
+          break;
+        default:
+          if (action.view) goTo(action.view, action.label.split(' (')[0]);
+      }
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
   }, []);
 
   // v1.9.4 — Accessibility hooks (v1.10.4/1.10.6 updated):
@@ -1032,7 +1133,7 @@ function App() {
             key={editorKey}
             onBack={() => { setEditingBill(null); setCurrentView('dashboard'); }}
             onStartNew={startBlankInvoice}
-            profile={profile} editingBill={editingBill}
+            profile={profile} editingBill={editingBill} initialType={newInvoiceType}
           />
         )}
         {/* v1.10.4 — All lazy views under one Suspense boundary. Only the
@@ -1186,7 +1287,7 @@ function App() {
           ↑/↓ to navigate, Enter to run, Esc to close. */}
       {showPalette && (
         <div className="modal-overlay" onClick={() => setShowPalette(false)}>
-          <div className="modal-content" style={{ maxWidth: '520px', padding: 0, overflow: 'hidden' }} onClick={e => e.stopPropagation()}>
+          <div className="modal-content" data-enter-native="" style={{ maxWidth: '520px', padding: 0, overflow: 'hidden' }} onClick={e => e.stopPropagation()}>
             <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', padding: '0.75rem 1rem', borderBottom: '1px solid var(--border-color)' }}>
               <Search size={16} style={{ color: 'var(--text-muted)' }} />
               <input autoFocus type="text" placeholder="Type a command or page name…"
@@ -1229,22 +1330,31 @@ function App() {
       {/* Keyboard-shortcuts help — Ctrl/Cmd+/. Single-pane reference. */}
       {showShortcutsHelp && (
         <div className="modal-overlay" onClick={() => setShowShortcutsHelp(false)}>
-          <div className="modal-content" style={{ maxWidth: '480px' }} onClick={e => e.stopPropagation()}>
+          <div className="modal-content" style={{ maxWidth: '520px', maxHeight: '85vh', overflowY: 'auto' }} onClick={e => e.stopPropagation()}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.75rem' }}>
               <h3 className="section-title" style={{ margin: 0 }}>Keyboard Shortcuts <HelpButton title="Keyboard shortcuts" doc="shortcuts#keyboard" size={16} /></h3>
               <button className="icon-btn" onClick={() => setShowShortcutsHelp(false)} title="Close"><X size={18} /></button>
             </div>
+            {/* Built-in keys, then the MARG-style keys as set in Settings ›
+                Shortcut keys (a key turned off there is not listed). */}
             <table className="kv-list">
               <tbody>
-                <tr><td><kbd>Ctrl</kbd>&nbsp;+&nbsp;<kbd>K</kbd></td><td>Open command palette (jump to any page)</td></tr>
-                <tr><td><kbd>Ctrl</kbd>&nbsp;+&nbsp;<kbd>N</kbd></td><td>New invoice</td></tr>
-                <tr><td><kbd>Ctrl</kbd>&nbsp;+&nbsp;<kbd>S</kbd></td><td>Save current invoice (when on the invoice form)</td></tr>
-                <tr><td><kbd>Ctrl</kbd>&nbsp;+&nbsp;<kbd>P</kbd></td><td>Download PDF (when on the invoice form)</td></tr>
-                <tr><td><kbd>Ctrl</kbd>&nbsp;+&nbsp;<kbd>Shift</kbd>&nbsp;+&nbsp;<kbd>L</kbd></td><td>Lock the app (when a PIN is set)</td></tr>
-                <tr><td><kbd>Ctrl</kbd>&nbsp;+&nbsp;<kbd>/</kbd></td><td>Toggle this help</td></tr>
-                <tr><td><kbd>Esc</kbd></td><td>Close any open modal</td></tr>
+                {FIXED_SHORTCUTS.map(([k, label]) => (
+                  <tr key={k}><td><kbd>{formatCombo(k)}</kbd></td><td>{label}</td></tr>
+                ))}
               </tbody>
             </table>
+            <h4 style={{ margin: '0.9rem 0 0.4rem', fontSize: '0.85rem' }}>MARG-style keys</h4>
+            <table className="kv-list">
+              <tbody>
+                {SHORTCUT_ACTIONS.filter((a) => shortcutKeys[a.id]).map((a) => (
+                  <tr key={a.id}><td><kbd>{formatCombo(shortcutKeys[a.id])}</kbd></td><td>{a.label}</td></tr>
+                ))}
+              </tbody>
+            </table>
+            <p style={{ fontSize: '0.72rem', color: 'var(--text-muted)', margin: '0.6rem 0 0' }}>
+              Change these keys in Settings › Shortcut keys.
+            </p>
             <p style={{ fontSize: '0.7rem', color: 'var(--text-muted)', marginTop: '0.75rem', marginBottom: 0 }}>
               On macOS, use <kbd>⌘</kbd> instead of <kbd>Ctrl</kbd>.
             </p>

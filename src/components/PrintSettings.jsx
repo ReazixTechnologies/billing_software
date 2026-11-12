@@ -6,6 +6,7 @@ import InvoicePreview from './InvoicePreview';
 import { getProfile, getInvoiceDisplayOptions, saveInvoiceDisplayOptions } from '../store';
 import { DEFAULT_PRINT_SETTINGS, getPrintSettings, savePrintSettings, buildSampleInvoice, BUSINESS_PRESETS, applyBusinessPreset, LABEL_PRESETS } from '../utils/printSettings';
 import HelpButton from './HelpButton';
+import { listPrinters, printPdfDirect } from '../utils/directPrint';
 
 // v1.9.9 — Visual design presets. Each is a starting point that flips
 // the pdfTemplate + color palette + thermal typography + a couple of
@@ -731,6 +732,11 @@ export default function PrintSettings() {
               hint="Send to your default printer immediately after Save & Download PDF. Perfect for POS counters — no manual click needed." />
           </SettingGroup>
 
+          {/* Requested: save a printer so Print skips the browser's print window. */}
+          <SettingGroup title="Print without the dialog" doc="print-settings#auto-print">
+            <DirectPrinterSettings settings={settings} set={set} />
+          </SettingGroup>
+
           {/* WATERMARK */}
           {/* v1.10.36 — Merged custom-watermark controls (previously in
               their own section ~450 lines below) into this master group.
@@ -1433,6 +1439,97 @@ function RoundOffSetting() {
       <ToggleRow label="Round off invoice totals" value={on} onChange={change}
         hint="Rounds the grand total to the nearest rupee and prints the difference as a Round-off line. Applies to new invoices; you can still change it per invoice under Customize → Totals." />
     </div>
+  );
+}
+
+// Direct printing: pick a printer this computer has, so Print sends the
+// invoice straight to it (through the local server) with no print window.
+function DirectPrinterSettings({ settings, set }) {
+  const [state, setState] = useState({ loading: true, printers: [], failed: false });
+  const [testing, setTesting] = useState(false);
+  // State only changes once the list arrives (the first load starts in the
+  // loading state already); Refresh shows "Looking…" again first.
+  const fetchPrinters = async () => {
+    try {
+      const r = await listPrinters();
+      setState({ loading: false, printers: r.printers || [], failed: !r.ok });
+    } catch {
+      setState({ loading: false, printers: [], failed: true });
+    }
+  };
+  const load = () => { setState((s) => ({ ...s, loading: true })); fetchPrinters(); };
+  useEffect(() => {
+    let live = true;
+    listPrinters()
+      .then((r) => { if (live) setState({ loading: false, printers: r.printers || [], failed: !r.ok }); })
+      .catch(() => { if (live) setState({ loading: false, printers: [], failed: true }); });
+    return () => { live = false; };
+  }, []);
+
+  const chosen = settings.directPrinterName || '';
+  const chosenMissing = chosen && !state.loading && !state.printers.some((p) => p.name === chosen);
+  const testPrint = async () => {
+    if (!chosen) { toast('Pick a printer first', 'warning'); return; }
+    setTesting(true);
+    try {
+      const { jsPDF } = await import('jspdf');
+      const doc = new jsPDF({ unit: 'mm', format: 'a4' });
+      doc.setFontSize(18); doc.text('Reazix Billing - test print', 20, 30);
+      doc.setFontSize(11);
+      doc.text(`Printer: ${chosen}`, 20, 42);
+      doc.text(`Printed: ${new Date().toLocaleString('en-IN')}`, 20, 50);
+      doc.text('If you can read this, invoices will print here with no print window.', 20, 62);
+      await printPdfDirect(doc.output('blob'), chosen, 1);
+      toast(`Test page sent to ${chosen}`, 'success');
+    } catch (err) {
+      toast(err.message || 'Test print failed', 'error');
+    } finally {
+      setTesting(false);
+    }
+  };
+
+  return (
+    <>
+      <ToggleRow label="Print straight to a saved printer" value={settings.directPrintEnabled}
+        onChange={(v) => set({ directPrintEnabled: v, ...(v && !chosen && state.printers.length ? { directPrinterName: (state.printers.find((p) => p.isDefault) || state.printers[0]).name } : {}) })}
+        hint="Print sends the invoice to the printer below without opening the print window, and saves its PDF in Saved Invoices. Turn off to choose the printer each time." />
+      {settings.directPrintEnabled && (
+        <>
+          <div>
+            <label style={{ display: 'block', fontSize: '0.82rem', fontWeight: 600, marginBottom: 3 }}>Printer</label>
+            <div style={{ display: 'flex', gap: '0.35rem' }}>
+              <select className="form-input" style={{ fontSize: '0.82rem', padding: '0.35rem 0.55rem', flex: 1 }}
+                value={chosen} onChange={(e) => set({ directPrinterName: e.target.value })} disabled={state.loading}>
+                <option value="">{state.loading ? 'Looking for printers…' : state.printers.length ? 'Choose a printer' : 'No printers found'}</option>
+                {chosenMissing && <option value={chosen}>{chosen} (not found)</option>}
+                {state.printers.map((p) => <option key={p.name} value={p.name}>{p.name}{p.isDefault ? ' (default)' : ''}</option>)}
+              </select>
+              <button type="button" className="btn btn-secondary" style={{ fontSize: '0.78rem' }} onClick={load} disabled={state.loading}
+                title="Look for printers again">Refresh</button>
+            </div>
+            {!state.loading && !state.printers.length && (
+              <p style={{ margin: '3px 0 0', fontSize: '0.72rem', color: '#d97706' }}>
+                {state.failed ? 'Could not read the printer list from this computer.' : 'No printers are set up on this computer.'} Add one in your computer's printer settings, then press Refresh.
+              </p>
+            )}
+            {chosenMissing && (
+              <p style={{ margin: '3px 0 0', fontSize: '0.72rem', color: '#d97706' }}>This printer is not set up on this computer now. Pick another one.</p>
+            )}
+          </div>
+          <div style={{ display: 'flex', alignItems: 'flex-end', gap: '0.5rem' }}>
+            <div style={{ width: 90 }}>
+              <label style={{ display: 'block', fontSize: '0.82rem', fontWeight: 600, marginBottom: 3 }}>Copies</label>
+              <input type="number" min="1" max="20" className="form-input" style={{ fontSize: '0.82rem', padding: '0.35rem 0.55rem' }}
+                value={settings.directPrintCopies || 1}
+                onChange={(e) => set({ directPrintCopies: Math.min(20, Math.max(1, parseInt(e.target.value, 10) || 1)) })} />
+            </div>
+            <button type="button" className="btn btn-secondary" style={{ fontSize: '0.78rem' }} onClick={testPrint} disabled={testing || !chosen}>
+              <Printer size={14} /> {testing ? 'Sending…' : 'Test print'}
+            </button>
+          </div>
+        </>
+      )}
+    </>
   );
 }
 

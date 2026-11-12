@@ -1110,7 +1110,7 @@ export default function PurchaseBills() {
             <Wand2 size={16} /> Import from image (OCR)
           </button>
           <BulkCsvImport kind="purchase" onDone={() => { loadPurchases(); loadProducts(); }} />
-          <button className="btn btn-primary" onClick={openAdd}><Plus size={18} /> Add Purchase</button>
+          <button className="btn btn-primary" data-shortcut="new" onClick={openAdd}><Plus size={18} /> Add Purchase</button>
         </div>
         )}
       </div>

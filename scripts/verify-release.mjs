@@ -31,6 +31,7 @@ import { join, resolve } from 'path';
 import { spawn, spawnSync } from 'child_process';
 import { fileURLToPath } from 'url';
 import { tmpdir } from 'os';
+import { activateForTest } from '../license-tool/reazix-license.mjs';
 
 const REPO_ROOT = resolve(fileURLToPath(import.meta.url), '..', '..');
 const OUT_DIR = join(REPO_ROOT, 'release-build');
@@ -157,6 +158,11 @@ try {
   log('  3/5  starting the packaged server…');
   server = await startServer(systemDir);
   log(`       bound at ${server.url}`);
+
+  // Without a product key the data API must refuse; then give it one.
+  const locked = await fetch(`${server.url}/api/bills`);
+  if (locked.status !== 402) fail(`GET /api/bills without a product key returned ${locked.status}, not 402.`);
+  await activateForTest(server.url).catch((e) => fail(e.message));
 
   log('  4/5  exercising the HTTP surface…');
   const endpoints = ['/', '/api/bills', '/api/clients', '/api/products', '/api/profile'];

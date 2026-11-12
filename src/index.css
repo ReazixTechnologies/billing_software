@@ -1261,6 +1261,52 @@ textarea.form-input { resize: vertical; min-height: 60px; }
   padding-right: 0.5rem;
 }
 
+/* Requested: move the editor/preview divider 3.5cm to the right, so Billed To
+   and Line Items get more room. Both panes grow equally from their basis, so
+   a 7cm basis on the editor (preview stays at 0) puts the editor exactly
+   3.5cm past the halfway line. Desktop only; narrow screens stack the panes. */
+@media (min-width: 901px) {
+  .split-view:not(.split-view-focus) .editor-pane {
+    flex: 1 1 7cm;
+  }
+}
+
+/* Right column: scrolling down goes through the whole bill and then reaches
+   the Invoice Type card. Only the bill scrolls sideways (when zoomed past the
+   column width), so sideways scrolling and zoom never move the card. */
+.preview-column {
+  flex: 1 1 0;
+  min-width: 0;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  overflow-x: hidden;
+  overflow-y: auto;
+}
+.preview-column-card {
+  flex: none;
+  margin-top: 1rem;
+}
+.preview-column-card > .glass-panel {
+  margin-bottom: 0;
+}
+@media (min-width: 901px) {
+  /* Full height of the bill (the column does the up/down scrolling);
+     sideways scroll stays on the bill. */
+  .preview-column > .preview-pane {
+    flex: none;
+    overflow-x: auto;
+    overflow-y: hidden;
+  }
+}
+/* Narrow screens stack the panes and the card lives in the editor, so the
+   column steps out of the layout and the old .preview-pane rules apply. */
+@media (max-width: 900px) {
+  .preview-column {
+    display: contents;
+  }
+}
+
 .preview-pane {
   flex: 1;
   overflow: auto;
@@ -3573,6 +3619,22 @@ html:not([data-theme="dark"]) .mobile-topbar .topbar-btn { background: rgba(15, 
   font-size: 0.85rem;
 }
 .app-lock-help { font-size: 0.8rem; color: var(--text-muted); text-align: left; line-height: 1.5; }
+
+/* Product key screen (LicenseGate.jsx), built on the PIN lock card. */
+.license-card { max-width: 440px; }
+.license-card .form-label { align-self: flex-start; margin-top: 0.75rem; }
+.license-pc {
+  display: flex; align-items: center; justify-content: center; flex-wrap: wrap; gap: 0.5rem;
+  width: 100%; margin-top: 0.75rem; padding: 0.6rem 0.75rem;
+  border: 1px dashed var(--border-color, rgba(128, 128, 128, 0.4)); border-radius: 8px;
+}
+.license-pc strong { font-size: 1.15rem; letter-spacing: 0.08em; font-family: ui-monospace, Consolas, monospace; }
+.license-input { width: 100%; font-family: ui-monospace, Consolas, monospace; font-size: 0.8rem; word-break: break-all; resize: vertical; }
+.license-card .btn-primary { width: 100%; }
+.license-warning {
+  padding: 0.5rem 1rem; text-align: center; font-size: 0.85rem;
+  background: var(--warning, #b45309); color: #fff;
+}
 
 /* v1.10.81 - welcome note for new users (WelcomeCard.jsx). Dark first, as the
    rest of this file; light below. */

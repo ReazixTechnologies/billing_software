@@ -143,6 +143,9 @@ const agent = { 'User-Agent': 'ReazixBilling-Updater' };
   const assets = info.assets || [];
   const asset = assets.find((a) => /^Reazix-Billing-v.+\.zip$/i.test(a.name)) || assets.find((a) => /\.zip$/i.test(a.name));
   if (!asset) throw new Error(`Release ${info.tag_name} has no ZIP attached yet. Try again later.`);
+  if (!asset.signature) throw new Error(`Release ${info.tag_name} has no signed ZIP yet. Try again later.`);
+  fs.writeFileSync(`${out}.tag`, String(info.tag_name));
+  fs.writeFileSync(`${out}.sig`, String(asset.signature));
   console.log(`  Latest release: ${info.tag_name}`);
   const res = await fetch(asset.browser_download_url, { headers: agent });
   if (!res.ok) throw new Error(`The download failed with ${res.status}.`);
@@ -152,6 +155,11 @@ const agent = { 'User-Agent': 'ReazixBilling-Updater' };
   console.log(`  Downloaded ${(buf.length / 1048576).toFixed(1)} MB`);
 })().catch((e) => { console.error(`  ${e.message}`); process.exit(1); });
 NODE
+  # The ZIP must be signed by Reazix, checked by THIS installed copy, so a ZIP
+  # swapped on a hacked website is never installed.
+  [ -f "$SYSTEM_DIR/verify-update.cjs" ] || fail 'Could not check the update signature (verify-update.cjs missing). Nothing was changed.'
+  node "$SYSTEM_DIR/verify-update.cjs" "$ZIP" "$(cat "$ZIP.tag")" "$(cat "$ZIP.sig")" \
+    || fail 'The update was refused because it is not signed by Reazix. Nothing was changed.'
 fi
 
 # --- Step 2: open it, and prove every file arrived --------------------------

@@ -4,6 +4,7 @@ import express from 'express';
 // where `cors()` echoed `*` for every origin.
 import fs from 'fs';
 import crypto from 'crypto';
+import { execFileSync } from 'child_process';
 import path from 'path';
 import { fileURLToPath } from 'url';
 // v1.10.31 — Data-F3.1: share computeInvoiceTotals with the client so
@@ -58,7 +59,14 @@ const app = express();
 // Origin pointing at http://localhost:<port>. Everything else is
 // rejected. The Vite dev server proxies /api → us so its origin is
 // also localhost.
+// The Host must be this PC too. Without it, a website whose name is made to
+// point at 127.0.0.1 (DNS rebinding) counts as "same page": its reads carry
+// no Origin, so it could read every invoice from the shop owner's browser.
+const LOCAL_HOST_RE = /^(localhost|127\.0\.0\.1|\[::1\])(:\d+)?$/i;
 app.use((req, res, next) => {
+  if (!LOCAL_HOST_RE.test(String(req.headers.host || ''))) {
+    return res.status(403).json({ error: 'Only this computer can open the app.' });
+  }
   const origin = req.headers.origin;
   const allow =
     !origin ||
@@ -114,6 +122,150 @@ try {
   try { fs.appendFileSync(path.join(DATA_DIR, 'errors.log'), `[${new Date().toISOString()}] [startup] ${why} ${err.code || ''}\n`, 'utf-8'); } catch { /* the folder is the problem */ }
   process.exit(1);
 }
+
+// ========================
+// PRODUCT KEY (licence)
+// ========================
+// The app works only with a product key from Reazix, entered once. A key is
+// signed with Reazix's private key (license-tool/, never shipped); the app
+// holds only the public key below, so a key cannot be made or changed without
+// Reazix. A key names the PC it works on (one per key) and is for life.
+// It is checked here, on the server, so hiding the screen in the browser does
+// not open the app. Stored in data/license.json, which updates never touch.
+const LICENSE_PUBLIC_KEY = crypto.createPublicKey({
+  key: Buffer.from('MCowBQYDK2VwAyEAQ/0B14EAPizBXnANQgnmkpR6c5oljRKXAqsCVLiHMlg=', 'base64'),
+  format: 'der', type: 'spki',
+});
+const LICENSE_PATH = path.join(DATA_DIR, 'license.json');
+const PC_ALPHABET = '0123456789ABCDEFGHJKMNPQRSTVWXYZ';
+
+// This PC's code: from the ID Windows / macOS / Linux give the machine, so it
+// stays the same across updates and reinstalls.
+let pcCodeCache = null;
+function machineId() {
+  try {
+    if (process.platform === 'win32') {
+      const out = execFileSync('reg', ['query', 'HKLM\\SOFTWARE\\Microsoft\\Cryptography', '/v', 'MachineGuid', '/reg:64'], { encoding: 'utf8', windowsHide: true });
+      const m = out.match(/MachineGuid\s+REG_SZ\s+(\S+)/i);
+      if (m) return m[1];
+    } else if (process.platform === 'darwin') {
+      const out = execFileSync('ioreg', ['-rd1', '-c', 'IOPlatformExpertDevice'], { encoding: 'utf8' });
+      const m = out.match(/"IOPlatformUUID"\s*=\s*"([^"]+)"/);
+      if (m) return m[1];
+    } else {
+      for (const f of ['/etc/machine-id', '/var/lib/dbus/machine-id']) {
+        if (fs.existsSync(f)) { const id = fs.readFileSync(f, 'utf8').trim(); if (id) return id; }
+      }
+    }
+  } catch { /* fall back below */ }
+  return `${os.hostname()}|${os.userInfo().username}`;
+}
+function pcCode() {
+  if (pcCodeCache) return pcCodeCache;
+  const hash = crypto.createHash('sha256').update(`reazix-billing|${machineId().toLowerCase()}`).digest();
+  let bits = 0n;
+  for (let i = 0; i < 8; i++) bits = (bits << 8n) | BigInt(hash[i]);
+  let code = '';
+  for (let i = 0; i < 12; i++) { code += PC_ALPHABET[Number(bits & 31n)]; bits >>= 5n; }
+  pcCodeCache = code.match(/.{4}/g).join('-');
+  return pcCodeCache;
+}
+const normPc = (c) => String(c || '').toUpperCase().replace(/[^0-9A-Z]/g, '');
+const localDay = (d = new Date()) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+
+// "RZX1.<payload>.<signature>", both base64url. Payload:
+// { id, n: shop name, p: [PC Codes], i: issued day, e?: last valid day YYYY-MM-DD,
+//   g?: GSTIN, b?: { address, city, state, pin }, c?: counter number }
+// Keys are lifetime (no e). An e, if a key ever carries one, is still honoured.
+function readProductKey(key) {
+  const parts = String(key || '').replace(/\s+/g, '').split('.');
+  if (parts.length !== 3 || parts[0] !== 'RZX1') return null;
+  try {
+    const body = Buffer.from(parts[1], 'base64url');
+    const ok = crypto.verify(null, Buffer.concat([Buffer.from('RZX1.'), body]), LICENSE_PUBLIC_KEY, Buffer.from(parts[2], 'base64url'));
+    if (!ok) return null;
+    const p = JSON.parse(body.toString('utf8'));
+    if (!p || !Array.isArray(p.p) || (p.e !== undefined && !/^\d{4}-\d{2}-\d{2}$/.test(p.e))) return null;
+    return p;
+  } catch { return null; }
+}
+
+// { state: 'active' | 'none' | 'invalid' | 'other-pc' | 'expired' | 'clock', ... }
+function licenseStatus() {
+  const pc = pcCode();
+  const saved = readJSON(LICENSE_PATH, null);
+  if (!saved?.key) return { state: 'none', pc };
+  const p = readProductKey(saved.key);
+  if (!p) return { state: 'invalid', pc };
+  const info = { pc, shop: p.n || '', until: p.e || null, keyId: p.id || '', business: keyBusiness(p), counter: Number(p.c) || null };
+  if (!p.p.map(normPc).includes(normPc(pc))) return { ...info, state: 'other-pc' };
+  if (!p.e) return { ...info, state: 'active', lifetime: true };
+  const today = localDay();
+  // The PC date set back to stretch a key: the app has already seen a later day.
+  if (saved.lastSeen && today < saved.lastSeen) {
+    const back = (new Date(saved.lastSeen) - new Date(today)) / 86400000;
+    if (back > 2) return { ...info, state: 'clock', lastSeen: saved.lastSeen };
+  }
+  if (!saved.lastSeen || today > saved.lastSeen) writeJSON(LICENSE_PATH, { ...saved, lastSeen: today });
+  if (today > p.e) return { ...info, state: 'expired' };
+  const daysLeft = Math.round((new Date(p.e) - new Date(today)) / 86400000) + 1;
+  return { ...info, state: 'active', daysLeft };
+}
+
+app.get('/api/license', (req, res) => res.json(licenseStatus()));
+
+app.post('/api/license/activate', (req, res) => {
+  const key = String(req.body?.key || '').replace(/\s+/g, '');
+  const p = readProductKey(key);
+  if (!p) return res.status(400).json({ ok: false, error: 'This product key is not valid. Check that you copied all of it.' });
+  if (!p.p.map(normPc).includes(normPc(pcCode()))) {
+    return res.status(400).json({ ok: false, error: `This key is for another PC. This PC's code is ${pcCode()}: send it to Reazix for a key.` });
+  }
+  if (p.e && localDay() > p.e) return res.status(400).json({ ok: false, error: `This key ended on ${p.e}. Contact Reazix to renew.` });
+  const old = readJSON(LICENSE_PATH, {}) || {};
+  writeJSON(LICENSE_PATH, { key, activatedAt: new Date().toISOString(), lastSeen: old.lastSeen && old.lastSeen > localDay() ? old.lastSeen : localDay() });
+  // A shop key fills in the invoice header, and a second (third...) counter
+  // gets its own invoice number prefix, C2, C3..., so no two counters ever
+  // print the same number.
+  if (keyBusiness(p)) writeJSON(PROFILE_PATH, lockProfile(readJSON(PROFILE_PATH, DEFAULT_PROFILE), keyBusiness(p)));
+  if (Number(p.c) >= 2) {
+    const meta = readJSON(META_PATH, {});
+    meta.invoiceNumberSettings = { ...(meta.invoiceNumberSettings || {}), format: 'branded', brandPrefix: `C${Number(p.c)}` };
+    writeJSON(META_PATH, meta);
+  }
+  return res.json({ ok: true, ...licenseStatus() });
+});
+
+// The shop details a key carries (name, GSTIN, address...), or null for a
+// key without them. These are fixed on this PC: the header cannot be changed
+// to another business, so a key cannot be passed on to another shop.
+function keyBusiness(p) {
+  if (!p || (!p.g && !p.b)) return null;
+  const b = (p.b && typeof p.b === 'object') ? p.b : {};
+  const out = { businessName: String(p.n || '') };
+  if (p.g) out.gstin = String(p.g).toUpperCase();
+  for (const k of ['address', 'city', 'state', 'pin']) if (b[k]) out[k] = String(b[k]);
+  return out;
+}
+const activeKeyBusiness = () => {
+  const st = licenseStatus();
+  return st.state === 'active' ? st.business : null;
+};
+const lockProfile = (prof, business) => (business ? { ...(prof || {}), ...business } : prof);
+
+// Without an active key only these answer: the key screen, the PIN screen,
+// settings restore, updates and the Control Panel (backup, stop, update).
+const LICENSE_OPEN = [/^\/api\/license(\/|$)/, /^\/api\/lock$/, /^\/api\/local-prefs$/, /^\/api\/check-update$/,
+  /^\/api\/version$/, /^\/api\/health$/, /^\/api\/control-panel\//, /^\/api\/client-errors$/];
+let licenseOkUntil = 0;
+app.use('/api', (req, res, next) => {
+  const full = `/api${req.path}`;
+  if (LICENSE_OPEN.some((re) => re.test(full))) return next();
+  if (Date.now() < licenseOkUntil) return next();
+  const st = licenseStatus();
+  if (st.state === 'active') { licenseOkUntil = Date.now() + 60_000; return next(); }
+  return res.status(402).json({ error: 'A valid product key is needed. Open the app to enter it.', license: st.state });
+});
 
 // Helper: safe filename from ID (replace slashes, etc.)
 function safeFileName(id) {
@@ -377,12 +529,13 @@ const DEFAULT_PROFILE = {
   logo: '', signature: '', upiId: '', googleClientId: '', googleDriveFolder: 'Reazix Billing Invoices',
 };
 
+// A product key with shop details keeps them in the header (lockProfile).
 app.get('/api/profile', (req, res) => {
-  res.json(readJSON(PROFILE_PATH, DEFAULT_PROFILE));
+  res.json(lockProfile(readJSON(PROFILE_PATH, DEFAULT_PROFILE), activeKeyBusiness()));
 });
 
 app.post('/api/profile', (req, res) => {
-  writeJSON(PROFILE_PATH, req.body);
+  writeJSON(PROFILE_PATH, lockProfile(req.body, activeKeyBusiness()));
   res.json({ success: true });
 });
 
@@ -713,13 +866,14 @@ app.delete('/api/cash-book/:id', (req, res) => {
 // BUSINESS PROFILES (multi-business)
 // ========================
 app.get('/api/profiles', (req, res) => {
-  const profiles = readAllFromDir('profiles');
+  const business = activeKeyBusiness();
+  const profiles = readAllFromDir('profiles').map((p) => lockProfile(p, business));
   profiles.sort((a, b) => (a.businessName || '').localeCompare(b.businessName || ''));
   res.json(profiles);
 });
 
 app.post('/api/profiles', (req, res) => {
-  const prof = req.body;
+  const prof = lockProfile(req.body, activeKeyBusiness());
   if (!prof.id) prof.id = 'biz_' + Date.now() + crypto.randomBytes(3).toString('hex');
   const filePath = path.join(DATA_DIR, 'profiles', safeFileName(prof.id) + '.json');
   writeJSON(filePath, prof);
@@ -1596,6 +1750,182 @@ app.post('/api/control-panel/uninstall', async (req, res) => {
   }
   res.json({ ok: true, kept: !data || !pdfs ? __dirname : null });
   setTimeout(() => process.exit(0), 400);
+});
+
+// ============================================================
+// Direct printing: print an invoice PDF to a saved printer with no print
+// dialog (Settings › Print & PDF › Print without the dialog). The browser
+// cannot skip its own dialog, but this server runs on the same computer and
+// can hand the PDF to the operating system's print queue.
+//   macOS / Linux: CUPS (`lpstat` lists, `lp` prints) - built in.
+//   Windows: PowerShell renders each page with the built-in Windows PDF
+//            engine (Windows.Data.Pdf, Windows 10 and later) and prints it
+//            with System.Drawing, so no PDF reader has to be installed.
+// Arguments always go to spawn() as an array (no shell), and the printer
+// must be one the system lists, so nothing typed can become a command.
+// ============================================================
+function runCapture(cmd, args, { timeoutMs = 20000 } = {}) {
+  return new Promise((resolve) => {
+    let out = '', err = '', done = false;
+    const finish = (r) => { if (!done) { done = true; resolve(r); } };
+    let child;
+    try { child = spawn(cmd, args, { windowsHide: true }); } catch (e) { finish({ code: -1, out, err: e.message }); return; }
+    const timer = setTimeout(() => { try { child.kill(); } catch { /* gone */ } finish({ code: -1, out, err: 'timed out' }); }, timeoutMs);
+    child.stdout?.on('data', d => { out += d.toString(); });
+    child.stderr?.on('data', d => { err += d.toString(); });
+    child.on('error', e => { clearTimeout(timer); finish({ code: -1, out, err: e.message }); });
+    child.on('exit', code => { clearTimeout(timer); finish({ code, out, err }); });
+  });
+}
+
+const PS_ARGS = ['-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass'];
+
+async function listPrinters() {
+  if (isWindows) {
+    const r = await runCapture('powershell.exe', [...PS_ARGS, '-Command',
+      "[Console]::OutputEncoding=[Text.Encoding]::UTF8; Get-CimInstance Win32_Printer | ForEach-Object { $_.Name + \"`t\" + $_.Default }"]);
+    if (r.code !== 0) return { ok: false, printers: [] };
+    const printers = r.out.split(/\r?\n/).map(l => l.trim()).filter(Boolean).map((l) => {
+      const [name, def] = l.split('\t');
+      return { name, isDefault: /true/i.test(def || '') };
+    });
+    return { ok: true, printers };
+  }
+  // `lpstat -e` lists queue names (CUPS 2.x); older CUPS only has `-a`.
+  let r = await runCapture('lpstat', ['-e']);
+  let names = r.code === 0 ? r.out.split(/\r?\n/).map(l => l.trim()).filter(Boolean) : [];
+  if (r.code !== 0) {
+    r = await runCapture('lpstat', ['-a']);
+    names = r.code === 0 ? r.out.split(/\r?\n/).map(l => l.split(/\s+/)[0]).filter(Boolean) : [];
+    if (r.code !== 0 && /not found|ENOENT/i.test(r.err)) return { ok: false, printers: [] };
+  }
+  const d = await runCapture('lpstat', ['-d']);
+  const def = (d.out.match(/destination:\s*(\S+)/) || [])[1] || '';
+  return { ok: true, printers: [...new Set(names)].map(name => ({ name, isDefault: name === def })) };
+}
+
+// Windows: render each PDF page at 300 dpi and print it at the PDF's own page
+// size (so an 80mm receipt prints as 80mm), shrunk only if it would not fit.
+const WINDOWS_PRINT_PS1 = String.raw`
+param([string]$Pdf, [string]$Printer, [int]$Copies = 1)
+$ErrorActionPreference = 'Stop'
+Add-Type -AssemblyName System.Runtime.WindowsRuntime
+Add-Type -AssemblyName System.Drawing
+$null = [Windows.Storage.StorageFile, Windows.Storage, ContentType = WindowsRuntime]
+$null = [Windows.Data.Pdf.PdfDocument, Windows.Data.Pdf, ContentType = WindowsRuntime]
+$null = [Windows.Storage.Streams.InMemoryRandomAccessStream, Windows.Storage.Streams, ContentType = WindowsRuntime]
+$ext = [System.WindowsRuntimeSystemExtensions].GetMethods()
+$asTaskOp = $ext | Where-Object { $_.Name -eq 'AsTask' -and $_.GetParameters().Count -eq 1 -and $_.GetParameters()[0].ParameterType.Name -eq 'IAsyncOperation` + '`' + String.raw`1' } | Select-Object -First 1
+$asTaskAct = $ext | Where-Object { $_.Name -eq 'AsTask' -and $_.GetParameters().Count -eq 1 -and $_.GetParameters()[0].ParameterType.Name -eq 'IAsyncAction' } | Select-Object -First 1
+function Await($op, [Type]$type) { $t = $asTaskOp.MakeGenericMethod($type).Invoke($null, @($op)); $null = $t.Wait(-1); $t.Result }
+function AwaitAction($act) { $t = $asTaskAct.Invoke($null, @($act)); $null = $t.Wait(-1) }
+
+$file = Await ([Windows.Storage.StorageFile]::GetFileFromPathAsync($Pdf)) ([Windows.Storage.StorageFile])
+$doc = Await ([Windows.Data.Pdf.PdfDocument]::LoadFromFileAsync($file)) ([Windows.Data.Pdf.PdfDocument])
+$pages = New-Object System.Collections.ArrayList
+for ($i = 0; $i -lt $doc.PageCount; $i++) {
+  $page = $doc.GetPage([uint32]$i)
+  $wIn = $page.Size.Width / 96.0; $hIn = $page.Size.Height / 96.0   # page size is in 1/96 inch
+  $opts = New-Object Windows.Data.Pdf.PdfPageRenderOptions
+  $opts.DestinationWidth = [uint32][Math]::Round($wIn * 300)
+  $opts.DestinationHeight = [uint32][Math]::Round($hIn * 300)
+  $ras = New-Object Windows.Storage.Streams.InMemoryRandomAccessStream
+  AwaitAction ($page.RenderToStreamAsync($ras, $opts))
+  $ras.Seek(0)
+  $src = [System.IO.WindowsRuntimeStreamExtensions]::AsStreamForRead($ras.GetInputStreamAt(0))
+  $mem = New-Object System.IO.MemoryStream
+  $src.CopyTo($mem); $mem.Position = 0
+  $null = $pages.Add(@([System.Drawing.Image]::FromStream($mem), $wIn, $hIn))
+  $page.Dispose()
+}
+
+$pd = New-Object System.Drawing.Printing.PrintDocument
+$pd.PrinterSettings.PrinterName = $Printer
+if (-not $pd.PrinterSettings.IsValid) { throw "PRINTER_NOT_FOUND" }
+$pd.PrintController = New-Object System.Drawing.Printing.StandardPrintController   # no "Printing..." box
+$pd.DocumentName = [System.IO.Path]::GetFileNameWithoutExtension($Pdf)
+$script:idx = 0
+$pd.add_QueryPageSettings({ param($s, $e)
+  $p = $pages[$script:idx]
+  $w100 = [int][Math]::Round($p[1] * 100); $h100 = [int][Math]::Round($p[2] * 100)
+  $e.PageSettings.Landscape = $false
+  # A sheet (A4, A5, Letter...): use the printer's own paper of that size when
+  # it has one. A receipt roll (narrower than 4.5in): its exact size.
+  $match = $null
+  foreach ($ps in $s.PrinterSettings.PaperSizes) {
+    if ([Math]::Abs($ps.Width - $w100) -le 10 -and [Math]::Abs($ps.Height - $h100) -le 10) { $match = $ps; break }
+  }
+  if ($match) { $e.PageSettings.PaperSize = $match }
+  elseif ($p[1] -lt 4.5) { $e.PageSettings.PaperSize = New-Object System.Drawing.Printing.PaperSize('Receipt', $w100, $h100) }
+})
+$pd.add_PrintPage({ param($s, $e)
+  $p = $pages[$script:idx]
+  $g = $e.Graphics
+  $g.InterpolationMode = [System.Drawing.Drawing2D.InterpolationMode]::HighQualityBicubic
+  # Units are 1/100 inch; the origin sits at the printer's hard margin.
+  $availW = $e.PageBounds.Width - 2 * $e.PageSettings.HardMarginX
+  $availH = $e.PageBounds.Height - 2 * $e.PageSettings.HardMarginY
+  $w = $p[1] * 100; $h = $p[2] * 100
+  $scale = [Math]::Min(1.0, [Math]::Min($availW / $w, $availH / $h))
+  $g.DrawImage($p[0], 0, 0, [float]($w * $scale), [float]($h * $scale))
+  $script:idx++
+  $e.HasMorePages = $script:idx -lt $pages.Count
+})
+for ($c = 0; $c -lt [Math]::Max(1, $Copies); $c++) { $script:idx = 0; $pd.Print() }
+foreach ($p in $pages) { $p[0].Dispose() }
+`;
+
+app.get('/api/printers', async (_req, res) => {
+  try {
+    const r = await listPrinters();
+    res.json({ ...r, platform: process.platform });
+  } catch (err) {
+    errRes(res, 500, 'server-error', err);
+  }
+});
+
+app.post('/api/print', express.raw({ type: 'application/pdf', limit: '20mb' }), async (req, res) => {
+  const printer = String(req.query.printer || '').trim();
+  const copies = Math.min(20, Math.max(1, parseInt(req.query.copies, 10) || 1));
+  if (!printer) return res.status(400).json({ ok: false, error: 'no-printer', message: 'No printer is chosen. Pick one in Settings › Print & PDF.' });
+  if (!Buffer.isBuffer(req.body) || req.body.length < 5 || req.body.subarray(0, 5).toString() !== '%PDF-') {
+    return res.status(400).json({ ok: false, error: 'not-pdf', message: 'The invoice PDF did not arrive. Try again.' });
+  }
+  let known;
+  try { known = await listPrinters(); } catch { known = { ok: false, printers: [] }; }
+  if (!known.printers.some(p => p.name === printer)) {
+    return res.status(404).json({ ok: false, error: 'printer-not-found', message: `The printer "${printer}" is not set up on this computer any more. Pick it again in Settings › Print & PDF.` });
+  }
+  const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'reazix-print-'));
+  const pdfPath = path.join(tmpDir, 'invoice.pdf');
+  try {
+    fs.writeFileSync(pdfPath, req.body);
+    let r;
+    if (isWindows) {
+      const ps1 = path.join(tmpDir, 'print.ps1');
+      // UTF-8 with BOM so Windows PowerShell 5.1 reads it as UTF-8.
+      fs.writeFileSync(ps1, '﻿' + WINDOWS_PRINT_PS1, 'utf-8');
+      r = await runCapture('powershell.exe', [...PS_ARGS, '-File', ps1, '-Pdf', pdfPath, '-Printer', printer, '-Copies', String(copies)], { timeoutMs: 120000 });
+    } else {
+      r = await runCapture('lp', ['-d', printer, '-n', String(copies), '-t', 'Invoice', pdfPath], { timeoutMs: 60000 });
+    }
+    if (r.code !== 0) {
+      try { fs.appendFileSync(ERRORS_LOG, `[${new Date().toISOString()}] [api:print-failed] printer=${printer} code=${r.code} ${r.err.slice(-1500)}\n`, 'utf-8'); } catch { /* ignore */ }
+      const notFound = /PRINTER_NOT_FOUND|does not exist|Unknown destination/i.test(r.err);
+      const noWinPdf = isWindows && /Windows\.Data\.Pdf|TypeNotFound|Unable to find type/i.test(r.err);
+      const message = notFound ? `The printer "${printer}" could not be found. Pick it again in Settings › Print & PDF.`
+        : noWinPdf ? 'This version of Windows cannot print PDFs directly (Windows 10 or later is needed). Turn off "Print without the dialog" to use the normal print window.'
+        : 'The printer did not accept the invoice. Check that it is on and connected, then try again.';
+      return res.status(500).json({ ok: false, error: 'print-failed', message });
+    }
+    res.json({ ok: true });
+  } catch (err) {
+    errRes(res, 500, 'server-error', err);
+  } finally {
+    // Windows' spooler has the job once Print() returns, and lp copies the
+    // file into the CUPS queue, so the temp copy can go.
+    setTimeout(() => { try { fs.rmSync(tmpDir, { recursive: true, force: true }); } catch { /* ignore */ } }, 5000);
+  }
 });
 
 // ========================

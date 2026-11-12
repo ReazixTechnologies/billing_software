@@ -4,6 +4,68 @@ All notable changes to **Reazix Billing Software** are listed here.
 
 ---
 
+## [1.0.2] - 2026-11-12
+
+**Shortcut keys, printing without the print window, and a roomier invoice screen.**
+
+### How to update
+
+**Current version:** 1.0.1  →  **New version:** 1.0.2
+
+Click **Update** in the app's menu. Your invoices and settings are kept.
+
+### New
+- **Shortcut keys like MARG:** Alt+N new bill, Alt+M bill list, Alt+P
+  purchases, Alt+C delivery challan, Alt+V receipts, Ctrl+I products,
+  Ctrl+L clients, Alt+F10 reports, F2 new (on any screen), F11 print,
+  Ctrl+F1 list of keys, Ctrl+Q lock. Change or turn off any key in
+  Settings › Shortcut keys.
+- **Enter goes to the next box** while filling a bill. Enter on the last box
+  of an item row adds the next row. Turn it off in Settings › Shortcut keys.
+- **Print without the print window:** in Settings › Print & PDF, choose your
+  printer once. After that, Print sends the bill straight to it. If the
+  printer does not take it, the normal print window opens instead.
+- **Print also saves the bill's PDF** in Saved Invoices.
+- **Phone No. and Attended By** on the Billed To card, both optional.
+  Attended By is printed on the bill when filled.
+
+### Safer
+- **Updates are checked before they install:** every update is signed by
+  Reazix, and the app installs only a signed update. A changed or fake file
+  is refused and nothing on your PC is touched.
+- **Only this PC can open the app's data:** a website cannot read your
+  invoices through the browser, even with tricks.
+
+### Changed
+- **Invoice screen:** the bill preview is on the right with the Invoice Type
+  card under it, and the form side is wider. The preview remembers where you
+  left it and scrolls to the item you are typing.
+
+---
+
+## [1.0.1] - 2026-11-09
+
+**Product key activation.**
+
+### How to update
+
+**Current version:** 1.0.0  →  **New version:** 1.0.1
+
+Click **Update** in the app's menu. Your invoices and settings are kept.
+After the update the app asks once for your product key.
+
+### Changed
+- **Product key:** the app now opens with a product key from Reazix, entered
+  once and valid for life. The first screen shows this PC's code: send it to
+  Reazix and paste the key you get back. One key works on one PC.
+- **Shop details from the key:** a key can carry the business name, GSTIN and
+  address. They fill the invoice header by themselves and stay fixed.
+- **More counters:** a shop's second (third...) counter gets its own key, the
+  same header, and its own invoice numbers (C2/..., C3/...), so two counters
+  never print the same number.
+
+---
+
 ## [1.0.0] - 2026-11-06
 
 **The first release of Reazix Billing.**

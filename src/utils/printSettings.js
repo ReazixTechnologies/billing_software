@@ -44,6 +44,14 @@ export const DEFAULT_PRINT_SETTINGS = {
   // -- Auto-print --
   autoPrintOnSave: false,   // send to default printer immediately after Save & PDF Download
 
+  // -- Direct printing (no print dialog) --
+  // Print goes straight to this printer through the local server
+  // (/api/print), skipping the browser's print window. Kept per computer,
+  // like the rest of these settings, since printers differ per machine.
+  directPrintEnabled: false,
+  directPrinterName: '',
+  directPrintCopies: 1,
+
   // -- Watermark --
   watermarkEnabled: false,
   watermarkText: 'DUPLICATE', // 'PAID' | 'DUPLICATE' | 'DRAFT' | 'OVERDUE' | 'COPY' | (custom text)

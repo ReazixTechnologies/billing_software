@@ -46,3 +46,10 @@ docs-site/out/
 
 # Playwright MCP browser-tool scratch files
 .playwright-mcp/
+
+# Licence signing key: NEVER commit or share. Back it up offline.
+license-tool/*.pem
+license-tool/issued-keys*.csv
+
+# The billing.reazix.com website (its own repo: ReazixTechnologies/billing)
+billing/

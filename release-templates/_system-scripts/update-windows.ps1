@@ -66,15 +66,17 @@ try {
   $api = Invoke-RestMethod -Uri 'https://billing.reazix.com/updates/latest.json' -Headers @{ 'User-Agent' = 'ReazixBilling-Updater' }
   $tag = $api.tag_name
   $zipAsset = $api.assets | Where-Object { $_.name -like '*.zip' } | Select-Object -First 1
-  if (-not $zipAsset) {
-    # Fall back to source-code ZIP if no release asset uploaded
-    $zipUrl = $api.zipball_url
-  } else {
-    $zipUrl = $zipAsset.browser_download_url
-  }
+  $zipUrl = if ($zipAsset) { $zipAsset.browser_download_url } else { $null }
   Write-Host "  Latest: $tag"
 } catch {
   Write-Host "  ERROR: could not reach billing.reazix.com. Are you online?" -ForegroundColor Red
+  Read-Host '  Press Enter to close'
+  exit 1
+}
+
+# Only a signed release ZIP is installed (no unsigned fallback).
+if (-not $zipUrl -or -not $zipAsset.signature) {
+  Write-Host "  ERROR: release $tag has no signed ZIP yet. Try again later. Nothing was changed." -ForegroundColor Red
   Read-Host '  Press Enter to close'
   exit 1
 }
@@ -85,6 +87,25 @@ New-Item -ItemType Directory -Path $tmp | Out-Null
 $zipPath = Join-Path $tmp 'update.zip'
 Write-Host '  Downloading update...'
 Invoke-WebRequest -Uri $zipUrl -OutFile $zipPath -UseBasicParsing
+
+# The ZIP must be signed by Reazix. Checked with verify-update.cjs from THIS
+# installed copy, so a ZIP swapped on a hacked website is never installed.
+. (Join-Path $ScriptDir 'ensure-node.ps1')
+$verifyNode = Get-NodeCandidates | Select-Object -First 1
+$verifier = Join-Path $ScriptDir 'verify-update.cjs'
+if (-not $verifyNode -or -not (Test-Path -LiteralPath $verifier)) {
+  Write-Host '  ERROR: could not check the update signature (Node.js or verify-update.cjs missing). Nothing was changed.' -ForegroundColor Red
+  Remove-Item -Recurse -Force $tmp -ErrorAction SilentlyContinue
+  Read-Host '  Press Enter to close'
+  exit 1
+}
+& $verifyNode $verifier $zipPath $tag $zipAsset.signature
+if ($LASTEXITCODE -ne 0) {
+  Write-Host '  ERROR: the update was refused because it is not signed by Reazix. Nothing was changed.' -ForegroundColor Red
+  Remove-Item -Recurse -Force $tmp -ErrorAction SilentlyContinue
+  Read-Host '  Press Enter to close'
+  exit 1
+}
 
 Write-Host '  Extracting...'
 # v1.10.83 - the ZIP now carries about 12,000 package files. Expand-Archive

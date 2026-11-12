@@ -204,6 +204,7 @@ function PartyBlock({ ctx, heading, party, withContact }) {
       {t.state && party.state && <div>State Name : {stateWithCode(party.state)}</div>}
       {withContact && t.clientPhone && party.phone && <div>Ph: {party.phone}</div>}
       {withContact && t.clientEmail && party.email && <div>E-Mail : {party.email}</div>}
+      {withContact && ctx.details?.attendedBy?.trim() && <div>Attended by : {ctx.details.attendedBy.trim()}</div>}
     </div>
   );
 }
@@ -303,7 +304,7 @@ function TallyLayout({ ctx }) {
           {items.map((item, i) => {
             const l = lineCalc(item);
             return (
-              <tr key={item.id || i}>
+              <tr key={item.id || i} data-preview-item="">
                 <td style={{ ...vc, ...center }}>{i + 1}</td>
                 <td style={vc}>
                   <strong>{item.name || '-'}</strong>
@@ -475,7 +476,7 @@ function BoxedLayout({ ctx }) {
             {items.map((item, i) => {
               const l = lineCalc(item);
               return (
-                <tr key={item.id || i}>
+                <tr key={item.id || i} data-preview-item="">
                   <td style={{ ...cell, ...center, borderLeft: 'none' }}>{i + 1}</td>
                   <td style={cell}>
                     {item.name || '-'}
