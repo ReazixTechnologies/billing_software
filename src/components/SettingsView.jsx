@@ -15,6 +15,7 @@ import { initGoogleDrive, isConnected, disconnect } from '../services/googleDriv
 import { toast } from './Toast';
 import { confirmAction } from './ConfirmModal';
 import PrintSettings from './PrintSettings';
+import ShortcutSettings from './ShortcutSettings';
 import HelpButton from './HelpButton';
 import AppLockSettings from './AppLockSettings';
 import PrivacyInternet from './PrivacyInternet';
@@ -36,6 +37,7 @@ const JUMP_NAV_SECTIONS = [
   ['section-profiles', 'Profiles'],
   ['section-terms',    'Terms'],
   ['section-print',    'Print & PDF'],
+  ['section-shortcuts', 'Shortcut keys'],
   ['section-modules',  'Features'],
   ['section-stock',    'Stock'],
   ['section-region',   'Region'],
@@ -52,7 +54,7 @@ const JUMP_NAV_SECTIONS = [
 const SETTINGS_TAB_DOCS = {
   'section-biztype': 'settings#business-type',
   'section-company': 'settings#company-details', 'section-profiles': 'settings#business-profiles',
-  'section-terms': 'settings#terms', 'section-print': 'print-settings', 'section-modules': 'settings#features',
+  'section-terms': 'settings#terms', 'section-print': 'print-settings', 'section-shortcuts': 'shortcuts#keyboard', 'section-modules': 'settings#features',
   'section-stock': 'settings#stock', 'section-region': 'settings#region', 'section-lock': 'settings#lock', 'section-privacy': 'security#offline-mode',
   'section-backups': 'backup#automatic-backups', 'section-cloud': 'settings#google-drive', 'section-data': 'backup#export-import',
   'section-updates': 'settings#updates',
@@ -1004,6 +1006,7 @@ export default function SettingsView({ onSaved }) {
 
       {/* ---- Thermal Printer Settings ---- */}
       <div id="section-print" style={{ order: 4 }}><PrintSettings /></div>
+      <div id="section-shortcuts" className="glass-panel p-6 mb-6" style={{ order: 4 }}><ShortcutSettings /></div>
 
       {/* v1.9.5 — Backup Management + Trash Bin */}
       <div id="section-backups" style={{ order: 8 }}><BackupAndTrashPanel /></div>

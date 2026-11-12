@@ -1261,6 +1261,52 @@ textarea.form-input { resize: vertical; min-height: 60px; }
   padding-right: 0.5rem;
 }
 
+/* Requested: move the editor/preview divider 3.5cm to the right, so Billed To
+   and Line Items get more room. Both panes grow equally from their basis, so
+   a 7cm basis on the editor (preview stays at 0) puts the editor exactly
+   3.5cm past the halfway line. Desktop only; narrow screens stack the panes. */
+@media (min-width: 901px) {
+  .split-view:not(.split-view-focus) .editor-pane {
+    flex: 1 1 7cm;
+  }
+}
+
+/* Right column: scrolling down goes through the whole bill and then reaches
+   the Invoice Type card. Only the bill scrolls sideways (when zoomed past the
+   column width), so sideways scrolling and zoom never move the card. */
+.preview-column {
+  flex: 1 1 0;
+  min-width: 0;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  overflow-x: hidden;
+  overflow-y: auto;
+}
+.preview-column-card {
+  flex: none;
+  margin-top: 1rem;
+}
+.preview-column-card > .glass-panel {
+  margin-bottom: 0;
+}
+@media (min-width: 901px) {
+  /* Full height of the bill (the column does the up/down scrolling);
+     sideways scroll stays on the bill. */
+  .preview-column > .preview-pane {
+    flex: none;
+    overflow-x: auto;
+    overflow-y: hidden;
+  }
+}
+/* Narrow screens stack the panes and the card lives in the editor, so the
+   column steps out of the layout and the old .preview-pane rules apply. */
+@media (max-width: 900px) {
+  .preview-column {
+    display: contents;
+  }
+}
+
 .preview-pane {
   flex: 1;
   overflow: auto;

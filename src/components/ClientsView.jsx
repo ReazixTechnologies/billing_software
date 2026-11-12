@@ -713,7 +713,7 @@ export default function ClientsView({ onEdit, onDuplicate, onNew }) {
           <button className="btn btn-secondary" onClick={() => setShowImport(true)}>
             <Upload size={16} /> Import CSV
           </button>
-          <button className="btn btn-secondary" onClick={() => openAddClient()}>
+          <button className="btn btn-secondary" data-shortcut="new" onClick={() => openAddClient()}>
             <Plus size={18} /> Add Client
           </button>
           <button className="btn btn-primary" onClick={onNew}>

@@ -1598,6 +1598,182 @@ app.post('/api/control-panel/uninstall', async (req, res) => {
   setTimeout(() => process.exit(0), 400);
 });
 
+// ============================================================
+// Direct printing: print an invoice PDF to a saved printer with no print
+// dialog (Settings › Print & PDF › Print without the dialog). The browser
+// cannot skip its own dialog, but this server runs on the same computer and
+// can hand the PDF to the operating system's print queue.
+//   macOS / Linux: CUPS (`lpstat` lists, `lp` prints) - built in.
+//   Windows: PowerShell renders each page with the built-in Windows PDF
+//            engine (Windows.Data.Pdf, Windows 10 and later) and prints it
+//            with System.Drawing, so no PDF reader has to be installed.
+// Arguments always go to spawn() as an array (no shell), and the printer
+// must be one the system lists, so nothing typed can become a command.
+// ============================================================
+function runCapture(cmd, args, { timeoutMs = 20000 } = {}) {
+  return new Promise((resolve) => {
+    let out = '', err = '', done = false;
+    const finish = (r) => { if (!done) { done = true; resolve(r); } };
+    let child;
+    try { child = spawn(cmd, args, { windowsHide: true }); } catch (e) { finish({ code: -1, out, err: e.message }); return; }
+    const timer = setTimeout(() => { try { child.kill(); } catch { /* gone */ } finish({ code: -1, out, err: 'timed out' }); }, timeoutMs);
+    child.stdout?.on('data', d => { out += d.toString(); });
+    child.stderr?.on('data', d => { err += d.toString(); });
+    child.on('error', e => { clearTimeout(timer); finish({ code: -1, out, err: e.message }); });
+    child.on('exit', code => { clearTimeout(timer); finish({ code, out, err }); });
+  });
+}
+
+const PS_ARGS = ['-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass'];
+
+async function listPrinters() {
+  if (isWindows) {
+    const r = await runCapture('powershell.exe', [...PS_ARGS, '-Command',
+      "[Console]::OutputEncoding=[Text.Encoding]::UTF8; Get-CimInstance Win32_Printer | ForEach-Object { $_.Name + \"`t\" + $_.Default }"]);
+    if (r.code !== 0) return { ok: false, printers: [] };
+    const printers = r.out.split(/\r?\n/).map(l => l.trim()).filter(Boolean).map((l) => {
+      const [name, def] = l.split('\t');
+      return { name, isDefault: /true/i.test(def || '') };
+    });
+    return { ok: true, printers };
+  }
+  // `lpstat -e` lists queue names (CUPS 2.x); older CUPS only has `-a`.
+  let r = await runCapture('lpstat', ['-e']);
+  let names = r.code === 0 ? r.out.split(/\r?\n/).map(l => l.trim()).filter(Boolean) : [];
+  if (r.code !== 0) {
+    r = await runCapture('lpstat', ['-a']);
+    names = r.code === 0 ? r.out.split(/\r?\n/).map(l => l.split(/\s+/)[0]).filter(Boolean) : [];
+    if (r.code !== 0 && /not found|ENOENT/i.test(r.err)) return { ok: false, printers: [] };
+  }
+  const d = await runCapture('lpstat', ['-d']);
+  const def = (d.out.match(/destination:\s*(\S+)/) || [])[1] || '';
+  return { ok: true, printers: [...new Set(names)].map(name => ({ name, isDefault: name === def })) };
+}
+
+// Windows: render each PDF page at 300 dpi and print it at the PDF's own page
+// size (so an 80mm receipt prints as 80mm), shrunk only if it would not fit.
+const WINDOWS_PRINT_PS1 = String.raw`
+param([string]$Pdf, [string]$Printer, [int]$Copies = 1)
+$ErrorActionPreference = 'Stop'
+Add-Type -AssemblyName System.Runtime.WindowsRuntime
+Add-Type -AssemblyName System.Drawing
+$null = [Windows.Storage.StorageFile, Windows.Storage, ContentType = WindowsRuntime]
+$null = [Windows.Data.Pdf.PdfDocument, Windows.Data.Pdf, ContentType = WindowsRuntime]
+$null = [Windows.Storage.Streams.InMemoryRandomAccessStream, Windows.Storage.Streams, ContentType = WindowsRuntime]
+$ext = [System.WindowsRuntimeSystemExtensions].GetMethods()
+$asTaskOp = $ext | Where-Object { $_.Name -eq 'AsTask' -and $_.GetParameters().Count -eq 1 -and $_.GetParameters()[0].ParameterType.Name -eq 'IAsyncOperation` + '`' + String.raw`1' } | Select-Object -First 1
+$asTaskAct = $ext | Where-Object { $_.Name -eq 'AsTask' -and $_.GetParameters().Count -eq 1 -and $_.GetParameters()[0].ParameterType.Name -eq 'IAsyncAction' } | Select-Object -First 1
+function Await($op, [Type]$type) { $t = $asTaskOp.MakeGenericMethod($type).Invoke($null, @($op)); $null = $t.Wait(-1); $t.Result }
+function AwaitAction($act) { $t = $asTaskAct.Invoke($null, @($act)); $null = $t.Wait(-1) }
+
+$file = Await ([Windows.Storage.StorageFile]::GetFileFromPathAsync($Pdf)) ([Windows.Storage.StorageFile])
+$doc = Await ([Windows.Data.Pdf.PdfDocument]::LoadFromFileAsync($file)) ([Windows.Data.Pdf.PdfDocument])
+$pages = New-Object System.Collections.ArrayList
+for ($i = 0; $i -lt $doc.PageCount; $i++) {
+  $page = $doc.GetPage([uint32]$i)
+  $wIn = $page.Size.Width / 96.0; $hIn = $page.Size.Height / 96.0   # page size is in 1/96 inch
+  $opts = New-Object Windows.Data.Pdf.PdfPageRenderOptions
+  $opts.DestinationWidth = [uint32][Math]::Round($wIn * 300)
+  $opts.DestinationHeight = [uint32][Math]::Round($hIn * 300)
+  $ras = New-Object Windows.Storage.Streams.InMemoryRandomAccessStream
+  AwaitAction ($page.RenderToStreamAsync($ras, $opts))
+  $ras.Seek(0)
+  $src = [System.IO.WindowsRuntimeStreamExtensions]::AsStreamForRead($ras.GetInputStreamAt(0))
+  $mem = New-Object System.IO.MemoryStream
+  $src.CopyTo($mem); $mem.Position = 0
+  $null = $pages.Add(@([System.Drawing.Image]::FromStream($mem), $wIn, $hIn))
+  $page.Dispose()
+}
+
+$pd = New-Object System.Drawing.Printing.PrintDocument
+$pd.PrinterSettings.PrinterName = $Printer
+if (-not $pd.PrinterSettings.IsValid) { throw "PRINTER_NOT_FOUND" }
+$pd.PrintController = New-Object System.Drawing.Printing.StandardPrintController   # no "Printing..." box
+$pd.DocumentName = [System.IO.Path]::GetFileNameWithoutExtension($Pdf)
+$script:idx = 0
+$pd.add_QueryPageSettings({ param($s, $e)
+  $p = $pages[$script:idx]
+  $w100 = [int][Math]::Round($p[1] * 100); $h100 = [int][Math]::Round($p[2] * 100)
+  $e.PageSettings.Landscape = $false
+  # A sheet (A4, A5, Letter...): use the printer's own paper of that size when
+  # it has one. A receipt roll (narrower than 4.5in): its exact size.
+  $match = $null
+  foreach ($ps in $s.PrinterSettings.PaperSizes) {
+    if ([Math]::Abs($ps.Width - $w100) -le 10 -and [Math]::Abs($ps.Height - $h100) -le 10) { $match = $ps; break }
+  }
+  if ($match) { $e.PageSettings.PaperSize = $match }
+  elseif ($p[1] -lt 4.5) { $e.PageSettings.PaperSize = New-Object System.Drawing.Printing.PaperSize('Receipt', $w100, $h100) }
+})
+$pd.add_PrintPage({ param($s, $e)
+  $p = $pages[$script:idx]
+  $g = $e.Graphics
+  $g.InterpolationMode = [System.Drawing.Drawing2D.InterpolationMode]::HighQualityBicubic
+  # Units are 1/100 inch; the origin sits at the printer's hard margin.
+  $availW = $e.PageBounds.Width - 2 * $e.PageSettings.HardMarginX
+  $availH = $e.PageBounds.Height - 2 * $e.PageSettings.HardMarginY
+  $w = $p[1] * 100; $h = $p[2] * 100
+  $scale = [Math]::Min(1.0, [Math]::Min($availW / $w, $availH / $h))
+  $g.DrawImage($p[0], 0, 0, [float]($w * $scale), [float]($h * $scale))
+  $script:idx++
+  $e.HasMorePages = $script:idx -lt $pages.Count
+})
+for ($c = 0; $c -lt [Math]::Max(1, $Copies); $c++) { $script:idx = 0; $pd.Print() }
+foreach ($p in $pages) { $p[0].Dispose() }
+`;
+
+app.get('/api/printers', async (_req, res) => {
+  try {
+    const r = await listPrinters();
+    res.json({ ...r, platform: process.platform });
+  } catch (err) {
+    errRes(res, 500, 'server-error', err);
+  }
+});
+
+app.post('/api/print', express.raw({ type: 'application/pdf', limit: '20mb' }), async (req, res) => {
+  const printer = String(req.query.printer || '').trim();
+  const copies = Math.min(20, Math.max(1, parseInt(req.query.copies, 10) || 1));
+  if (!printer) return res.status(400).json({ ok: false, error: 'no-printer', message: 'No printer is chosen. Pick one in Settings › Print & PDF.' });
+  if (!Buffer.isBuffer(req.body) || req.body.length < 5 || req.body.subarray(0, 5).toString() !== '%PDF-') {
+    return res.status(400).json({ ok: false, error: 'not-pdf', message: 'The invoice PDF did not arrive. Try again.' });
+  }
+  let known;
+  try { known = await listPrinters(); } catch { known = { ok: false, printers: [] }; }
+  if (!known.printers.some(p => p.name === printer)) {
+    return res.status(404).json({ ok: false, error: 'printer-not-found', message: `The printer "${printer}" is not set up on this computer any more. Pick it again in Settings › Print & PDF.` });
+  }
+  const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'reazix-print-'));
+  const pdfPath = path.join(tmpDir, 'invoice.pdf');
+  try {
+    fs.writeFileSync(pdfPath, req.body);
+    let r;
+    if (isWindows) {
+      const ps1 = path.join(tmpDir, 'print.ps1');
+      // UTF-8 with BOM so Windows PowerShell 5.1 reads it as UTF-8.
+      fs.writeFileSync(ps1, '﻿' + WINDOWS_PRINT_PS1, 'utf-8');
+      r = await runCapture('powershell.exe', [...PS_ARGS, '-File', ps1, '-Pdf', pdfPath, '-Printer', printer, '-Copies', String(copies)], { timeoutMs: 120000 });
+    } else {
+      r = await runCapture('lp', ['-d', printer, '-n', String(copies), '-t', 'Invoice', pdfPath], { timeoutMs: 60000 });
+    }
+    if (r.code !== 0) {
+      try { fs.appendFileSync(ERRORS_LOG, `[${new Date().toISOString()}] [api:print-failed] printer=${printer} code=${r.code} ${r.err.slice(-1500)}\n`, 'utf-8'); } catch { /* ignore */ }
+      const notFound = /PRINTER_NOT_FOUND|does not exist|Unknown destination/i.test(r.err);
+      const noWinPdf = isWindows && /Windows\.Data\.Pdf|TypeNotFound|Unable to find type/i.test(r.err);
+      const message = notFound ? `The printer "${printer}" could not be found. Pick it again in Settings › Print & PDF.`
+        : noWinPdf ? 'This version of Windows cannot print PDFs directly (Windows 10 or later is needed). Turn off "Print without the dialog" to use the normal print window.'
+        : 'The printer did not accept the invoice. Check that it is on and connected, then try again.';
+      return res.status(500).json({ ok: false, error: 'print-failed', message });
+    }
+    res.json({ ok: true });
+  } catch (err) {
+    errRes(res, 500, 'server-error', err);
+  } finally {
+    // Windows' spooler has the job once Print() returns, and lp copies the
+    // file into the CUPS queue, so the temp copy can go.
+    setTimeout(() => { try { fs.rmSync(tmpDir, { recursive: true, force: true }); } catch { /* ignore */ } }, 5000);
+  }
+});
+
 // ========================
 // Serve production build
 // ========================
