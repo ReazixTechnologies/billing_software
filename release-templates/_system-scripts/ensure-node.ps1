@@ -147,7 +147,13 @@ function Install-PortableNode {
     Write-Host '  Unpacking...'
     Expand-Archive -Path $tmpZip -DestinationPath $tmpDir -Force
     if (Test-Path $AppNodeDir) { Remove-Item $AppNodeDir -Recurse -Force -ErrorAction SilentlyContinue }
-    Move-Item (Join-Path $tmpDir $name) $AppNodeDir -ErrorAction Stop
+    # Just unpacked: Windows Search or an antivirus may still be reading it,
+    # and the move fails with "Access denied". Wait and retry, then copy.
+    $src = Join-Path $tmpDir $name
+    for ($try = 1; $try -le 8; $try++) {
+      try { Move-Item $src $AppNodeDir -ErrorAction Stop; return $true } catch { Start-Sleep -Seconds 2 }
+    }
+    Copy-Item $src $AppNodeDir -Recurse -Force -ErrorAction Stop
     return $true
   } catch {
     Write-Host "  The download did not work: $($_.Exception.Message)" -ForegroundColor Yellow

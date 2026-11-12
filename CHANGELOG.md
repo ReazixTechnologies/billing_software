@@ -4,6 +4,26 @@ All notable changes to **Reazix Billing Software** are listed here.
 
 ---
 
+## [1.0.4] - 2026-11-12
+
+**Installing on a new PC works first time.**
+
+### How to update
+
+**Current version:** 1.0.3  →  **New version:** 1.0.4
+
+Click **Update** in the app's menu. Your invoices and settings are kept.
+
+### Fixed
+- **Install on Windows:** no more "Access to the path ... is denied" while
+  installing. Windows Search reads the new files for a moment; the
+  installer now waits and tries again.
+- **First start on a new PC:** the app window opens at once on the product
+  key screen, instead of waiting 90 seconds and saying the server did not
+  answer (Windows and Mac).
+
+---
+
 ## [1.0.3] - 2026-11-12
 
 **Updates finish by themselves, on Windows and Mac.**

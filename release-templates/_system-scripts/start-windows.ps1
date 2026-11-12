@@ -168,7 +168,7 @@ if (Test-Path $portFile) {
 function TestServerUp {
   param([int]$p)
   try {
-    Invoke-WebRequest -Uri "http://127.0.0.1:$p/api/profile" -TimeoutSec 5 -UseBasicParsing -ErrorAction Stop | Out-Null
+    Invoke-WebRequest -Uri "http://127.0.0.1:$p/api/health" -TimeoutSec 5 -UseBasicParsing -ErrorAction Stop | Out-Null
     return $true
   } catch { return $false }
 }

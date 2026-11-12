@@ -36,7 +36,7 @@ problem() {
 }
 
 up() {
-  node -e "fetch('http://127.0.0.1:$PORT/api/profile').then((r) => process.exit(r.ok ? 0 : 1)).catch(() => process.exit(1))" 2>/dev/null
+  node -e "fetch('http://127.0.0.1:$PORT/api/health').then((r) => process.exit(r.ok ? 0 : 1)).catch(() => process.exit(1))" 2>/dev/null
 }
 
 command -v node >/dev/null 2>&1 || problem 'Node.js was not found.'

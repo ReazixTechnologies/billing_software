@@ -272,7 +272,19 @@ function Install-App {
       if ($keep -contains $item.Name) { continue }
       $target = Join-Path $sys $item.Name
       if (Test-Path -LiteralPath $target) { Remove-Item -LiteralPath $target -Recurse -Force }
-      Move-Item -LiteralPath $item.FullName -Destination $target
+      # Right after unpacking, Windows Search (or an antivirus) is still
+      # reading the new files, and moving the folder fails with "Access to the
+      # path ... is denied" (seen on dist/). Wait and try again; in the end
+      # copy it instead, which works while they read.
+      $moved = $false
+      for ($try = 1; $try -le 8 -and -not $moved; $try++) {
+        try { Move-Item -LiteralPath $item.FullName -Destination $target -ErrorAction Stop; $moved = $true }
+        catch { Start-Sleep -Seconds 2 }
+      }
+      if (-not $moved) {
+        if (Test-Path -LiteralPath $target) { Remove-Item -LiteralPath $target -Recurse -Force }
+        Copy-Item -LiteralPath $item.FullName -Destination $target -Recurse -Force -ErrorAction Stop
+      }
     }
     # A clean update: what an older version had and this one does not goes.
     # Never the books, saved PDFs, the bin or Node.js.
