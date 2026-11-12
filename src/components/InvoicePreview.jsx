@@ -427,6 +427,7 @@ const InvoicePreview = React.forwardRef(({ profile: profileProp, client, details
             {showGSTIN && client?.gstin && <p>{clientTaxIdLabel}: <strong>{client.gstin}</strong></p>}
             {showClientEmail && client?.email && <p>{client.email}</p>}
             {showClientPhone && client?.phone && <p>Ph: {client.phone}</p>}
+            {details?.attendedBy?.trim() && <p>Attended by: {details.attendedBy.trim()}</p>}
           </div>
         </div>
         {shipDifferent && (
@@ -674,6 +675,7 @@ const InvoicePreview = React.forwardRef(({ profile: profileProp, client, details
           )}
           {client?.gstin && <div>{cap(`${clientTaxIdLabel}: ${client.gstin}`)}</div>}
           {client?.phone && <div>{cap('Ph: ' + client.phone)}</div>}
+          {details?.attendedBy?.trim() && <div>{cap('Attended by: ' + details.attendedBy.trim())}</div>}
         </div>
 
         {einv && (
@@ -715,7 +717,7 @@ const InvoicePreview = React.forwardRef(({ profile: profileProp, client, details
                 // v1.10.83 - the receipt follows Customize → Unit too.
                 const unitBit = opt('showItemUnit') && item.unit ? ' ' + item.unit : '';
                 return (
-                  <div key={idx} style={{ marginBottom: 5, fontSize: '0.95em' }}>
+                  <div key={idx} data-preview-item="" style={{ marginBottom: 5, fontSize: '0.95em' }}>
                     <div style={{ fontWeight: strongWeight, wordBreak: 'break-word' }}>
                       {(idx + 1) + '. ' + cap(item.name || item.description || 'Item')}
                     </div>
@@ -1243,7 +1245,7 @@ const InvoicePreview = React.forwardRef(({ profile: profileProp, client, details
             const halfRate = taxRate / 2;
             const halfTax = taxAmount / 2;
             return (
-              <tr key={item.id} className={index % 2 === 0 ? 'inv-tr-even' : ''}>
+              <tr key={item.id} data-preview-item="" className={index % 2 === 0 ? 'inv-tr-even' : ''}>
                 <td className="inv-td inv-td-muted">{index + 1}</td>
                 <td className="inv-td inv-td-name">
                   {item.name || '-'}

@@ -221,7 +221,7 @@ export default function InventoryView() {
               <Factory size={16} /> Make
             </button>
           )}
-          <button className="btn btn-primary" onClick={openAdd}>
+          <button className="btn btn-primary" data-shortcut="new" onClick={openAdd}>
             <Plus size={18} /> Add Product
           </button>
         </div>
