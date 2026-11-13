@@ -4,6 +4,33 @@ All notable changes to **Reazix Billing Software** are listed here.
 
 ---
 
+## [1.0.7] - 2026-11-13
+
+**Every barcode tag from MARG works: one product, many barcodes.**
+
+### How to update
+
+**Current version:** 1.0.6  →  **New version:** 1.0.7
+
+Click **Update** in the app's menu. Your invoices and settings are kept.
+
+### New
+- **A product can have more than one barcode.** MARG prints a new barcode
+  for every purchase lot (a shirt bought in February and the same shirt
+  bought in October have different tags). Scanning any of them now bills
+  the same product.
+- **Add the barcodes to products you already imported:** on Products,
+  **Import (Excel / CSV)** and choose MARG's batch-wise stock report (the
+  one with Batch and Barcode columns). Each product gets its lots'
+  barcodes; stock and prices are not changed.
+- A new shop importing the batch-wise report gets one product per item,
+  with every lot's barcode, the stock of all lots added up, and the latest
+  lot's prices.
+- The product window has a **More barcodes** box to see or add tags.
+- Searching Products or the invoice finds a product by any of its barcodes.
+
+---
+
 ## [1.0.6] - 2026-11-13
 
 **New: bring your products and customers from MARG, Tally, Busy or Vyapar.**

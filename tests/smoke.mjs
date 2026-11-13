@@ -1707,6 +1707,23 @@ try {
         && jeans?.taxPercent === 5 && jeans?.stock === 0 && jeans?.sellingPrice === 999 && jeans?.barcode === '901' && jeans?.hsn === '6203'
         && shirt?.taxPercent === 12 && shirt?.stock === 3 && shirt?.sellingPrice === 650 && shirt?.purchasePrice === 400,
       JSON.stringify(imported.map((x) => [x.name, x.taxPercent, x.stock, x.sellingPrice])));
+    // A batch-wise stock report chosen next adds each lot's barcode to the
+    // products already imported; their stock and price stay.
+    const lots = buildXlsx([
+      ['Code', 'Product Name', 'Current Stock', 'Sales Price', 'Batch', 'Barcode'],
+      ['901', 'Smoke Import Jeans', 1, 999, '007001', '007001'],
+      ['901', 'Smoke Import Jeans', 2, 999, '007002', '007002'],
+    ]);
+    await page.getByRole('button', { name: /Import \(Excel \/ CSV\)/ }).click();
+    await page.locator('.modal-content input[type="file"]').setInputFiles({ name: 'BATCH.xlsx', mimeType: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', buffer: Buffer.from(lots) });
+    await sleep(800);
+    const lotText = await page.locator('.modal-content').innerText();
+    await page.getByRole('button', { name: 'Import 1' }).click();
+    await sleep(2000);
+    const jeans2 = (await get77('/api/products')).json.find((x) => x.name === 'Smoke Import Jeans');
+    check('1.0.7 a batch-wise MARG report adds each lot barcode to the saved product, stock and price kept',
+      /2 barcodes/.test(lotText) && jeans2?.barcode === '901' && JSON.stringify(jeans2?.barcodes) === '["007001","007002"]' && jeans2?.stock === 0 && jeans2?.sellingPrice === 999,
+      JSON.stringify(jeans2 && { b: jeans2.barcode, bs: jeans2.barcodes, st: jeans2.stock }));
     await page.evaluate(async (ids) => { for (const id of ids) await fetch(`/api/products/${encodeURIComponent(id)}`, { method: 'DELETE' }); }, imported.map((x) => x.id));
   }
 

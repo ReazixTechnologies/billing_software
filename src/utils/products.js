@@ -8,10 +8,23 @@ const num = (v) => (v === '' || v === null || v === undefined ? 0 : Number(v));
 export const cleanBarcode = (v) => String(v ?? '').trim();
 const barcodeKey = (v) => cleanBarcode(v).toLowerCase();
 
+// Every code that finds this product: its barcode, then `barcodes`, the
+// further codes it may carry. A shop moving from MARG has one barcode per
+// purchase lot (the tag on a shirt bought in October differs from one bought
+// in February), and any of them must bill the same product.
+export const productBarcodes = (p) => {
+  const out = [];
+  for (const b of [p?.barcode, ...(Array.isArray(p?.barcodes) ? p.barcodes : [])]) {
+    const c = cleanBarcode(b);
+    if (c && !out.some((o) => o.toLowerCase() === c.toLowerCase())) out.push(c);
+  }
+  return out;
+};
+
 export const findByBarcode = (products, code) => {
   const key = barcodeKey(code);
   if (!key) return null;
-  return (products || []).find((p) => barcodeKey(p.barcode) === key) || null;
+  return (products || []).find((p) => productBarcodes(p).some((b) => b.toLowerCase() === key)) || null;
 };
 
 // The first barcode used by two products, or null. One code must mean one
@@ -19,10 +32,11 @@ export const findByBarcode = (products, code) => {
 export const duplicateBarcode = (products) => {
   const seen = new Set();
   for (const p of products || []) {
-    const key = barcodeKey(p.barcode);
-    if (!key) continue;
-    if (seen.has(key)) return cleanBarcode(p.barcode);
-    seen.add(key);
+    for (const b of productBarcodes(p)) {
+      const key = b.toLowerCase();
+      if (seen.has(key)) return b;
+      seen.add(key);
+    }
   }
   return null;
 };

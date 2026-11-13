@@ -5,7 +5,7 @@
 // loosely (case, spaces, %, / ignored), so the Products export imports back.
 import { toCsvLine } from '../utils.js';
 import { rowsToRecords, toNum } from './bulkCsv.js';
-import { cleanBarcode } from './products.js';
+import { cleanBarcode, productBarcodes } from './products.js';
 
 // Headings are compared without case, spaces, dots, %, /, -, ( ), so
 // "P.Rate", "M.R.P." and "GST %" match "prate", "mrp" and "gst". Besides our
@@ -81,8 +81,21 @@ const dedupe = (existing) => {
 export function productsCsvToList(text, existing = []) {
   const { records, colOf = {}, header } = rowsToRecords(text, PRODUCT_FIELDS);
   const seen = dedupe(existing);
-  const barcodes = new Set((existing || []).map((x) => cleanBarcode(x.barcode).toLowerCase()).filter(Boolean));
-  const out = { products: [], skipped: 0, errors: [], notes: { fromMrp: 0, zeroGst: 0, negativeStock: 0, merged: 0 } };
+  const barcodes = new Set((existing || []).flatMap((x) => productBarcodes(x).map((b) => b.toLowerCase())));
+  // A product already saved: the file can still add barcodes to it (MARG's
+  // batch-wise stock report has one per purchase lot). Nothing else changes.
+  const saved = new Map((existing || []).map((x) => [String(x.name || '').trim().toLowerCase(), x]));
+  const updates = new Map(); // saved product -> a copy with its new barcodes
+  const skippedSaved = new Set();
+  const out = { products: [], updates: [], skipped: 0, errors: [], notes: { fromMrp: 0, zeroGst: 0, negativeStock: 0, merged: 0, barcodesAdded: 0 } };
+  const addCode = (product, code) => {
+    const key = code.toLowerCase();
+    if (!code || barcodes.has(key)) return false;
+    barcodes.add(key);
+    if (!product.barcode) product.barcode = code;
+    else product.barcodes = [...(product.barcodes || []), code];
+    return true;
+  };
   if (records.length && colOf.name !== undefined && !PRODUCT_DETAIL.some((f) => colOf[f] !== undefined)) {
     out.errors.push('This file has names but no price, stock, HSN or code column, so it does not look like an item list. Choose the item (stock) list instead.');
     return out;
@@ -97,7 +110,22 @@ export function productsCsvToList(text, existing = []) {
     if (again) {
       const more = toNum(r.stock, null);
       if (again.stock !== undefined && Number.isFinite(more)) again.stock += more;
+      // The later lot's prices are the current ones (reports list lots oldest first).
+      const sell = toNum(r.sellingPrice) || toNum(r.mrp);
+      if (sell > 0) { again.sellingPrice = sell; again.rate = sell; }
+      if (toNum(r.purchasePrice) > 0) again.purchasePrice = toNum(r.purchasePrice);
+      addCode(again, cleanBarcode(r.barcode));
       out.notes.merged++;
+      continue;
+    }
+    const savedOne = saved.get(name.toLowerCase());
+    if (savedOne) {
+      const code = cleanBarcode(r.barcode) || cleanBarcode(r.code);
+      if (code && !barcodes.has(code.toLowerCase())) {
+        const upd = updates.get(savedOne) || { ...savedOne, barcodes: [...(savedOne.barcodes || [])] };
+        if (addCode(upd, code)) { updates.set(savedOne, upd); out.notes.barcodesAdded++; }
+      }
+      if (!skippedSaved.has(savedOne)) { skippedSaved.add(savedOne); out.skipped++; }
       continue;
     }
     const type = String(r.type || '').toLowerCase();
@@ -139,6 +167,7 @@ export function productsCsvToList(text, existing = []) {
     inFile.set(name.toLowerCase(), out.products[out.products.length - 1]);
   }
   out.notes.negativeStock = out.products.filter((x) => x.stock < 0).length;
+  out.updates = [...updates.values()];
   return out;
 }
 

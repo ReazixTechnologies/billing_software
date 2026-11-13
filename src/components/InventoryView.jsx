@@ -5,7 +5,7 @@ import { getAllUnits, getCountryConfig, formatCurrency, isModuleEnabled, isServi
 import { productsCsvToList, PRODUCTS_SAMPLE } from '../utils/listCsv';
 import CsvListImport from './CsvListImport';
 import { bomError, unitCost } from '../utils/manufacturing';
-import { cleanBarcode, findByBarcode } from '../utils/products';
+import { cleanBarcode, findByBarcode, productBarcodes } from '../utils/products';
 import { BomEditor, MakeModal, ProductionList } from './Manufacturing';
 import { toast } from './Toast';
 import { confirmAction } from './ConfirmModal';
@@ -21,7 +21,7 @@ import TableExport from './TableExport';
 // dead state removed for clarity.
 const emptyForm = {
   // kind: v1.10.83 (#121) - 'goods' or 'service' (a service has no stock).
-  kind: 'goods', name: '', hsn: '', barcode: '', purchasePrice: '', sellingPrice: '', taxPercent: '', unit: 'Pcs', stock: '', description: '',
+  kind: 'goods', name: '', hsn: '', barcode: '', moreBarcodes: '', purchasePrice: '', sellingPrice: '', taxPercent: '', unit: 'Pcs', stock: '', description: '',
   madeHere: false, bom: [],
 };
 
@@ -69,7 +69,7 @@ export default function InventoryView() {
     ? products.filter(p =>
         (p.name || '').toLowerCase().includes(search.toLowerCase()) ||
         (p.hsn || '').toLowerCase().includes(search.toLowerCase()) ||
-        (p.barcode || '').toLowerCase().includes(search.trim().toLowerCase())
+        productBarcodes(p).some((b) => b.toLowerCase().includes(search.trim().toLowerCase()))
       )
     : products;
 
@@ -88,6 +88,7 @@ export default function InventoryView() {
       name: product.name || '',
       hsn: product.hsn || '',
       barcode: product.barcode || '',
+      moreBarcodes: (Array.isArray(product.barcodes) ? product.barcodes : []).join(', '),
       purchasePrice: product.purchasePrice ?? '',
       sellingPrice: product.sellingPrice ?? product.rate ?? '',
       taxPercent: product.taxPercent || '',
@@ -118,10 +119,14 @@ export default function InventoryView() {
       toast('GST % must be between 0 and 100', 'warning');
       return;
     }
-    const barcodeOwner = findByBarcode(products.filter(p => p.id !== editingId), form.barcode);
-    if (barcodeOwner) {
-      toast(`Barcode ${cleanBarcode(form.barcode)} is already used by ${barcodeOwner.name}`, 'warning');
-      return;
+    const moreBarcodes = String(form.moreBarcodes || '').split(/[,\s]+/).map(cleanBarcode)
+      .filter((b, i, all) => b && b.toLowerCase() !== cleanBarcode(form.barcode).toLowerCase() && all.findIndex((x) => x.toLowerCase() === b.toLowerCase()) === i);
+    for (const code of [cleanBarcode(form.barcode), ...moreBarcodes]) {
+      const barcodeOwner = code && findByBarcode(products.filter(p => p.id !== editingId), code);
+      if (barcodeOwner) {
+        toast(`Barcode ${code} is already used by ${barcodeOwner.name}`, 'warning');
+        return;
+      }
     }
     // v1.10.83 (#115) - a raw materials list must be complete, positive and loop-free.
     const bom = form.bom.map((l) => ({ productId: l.productId, qty: Number(l.qty) }));
@@ -143,6 +148,7 @@ export default function InventoryView() {
         name: form.name.trim(),
         hsn: form.hsn.trim(),
         barcode: cleanBarcode(form.barcode),
+        barcodes: moreBarcodes,
         purchasePrice,
         sellingPrice,
         rate: sellingPrice, // mirror for legacy readers
@@ -229,7 +235,7 @@ export default function InventoryView() {
       {showImport && (
         <CsvListImport what="products" sample={PRODUCTS_SAMPLE} sampleName="Products-sample.csv" doc="products#import"
           intro="One product or service per row: Name (required), Type (Goods or Service), HSN/SAC, Unit, Purchase Price, Selling Price, GST %, Stock (leave Stock blank for a service) and Barcode."
-          parse={(text) => { const r = productsCsvToList(text, products); return { list: r.products, skipped: r.skipped, errors: r.errors, notes: r.notes }; }}
+          parse={(text) => { const r = productsCsvToList(text, products); return { list: r.products, updates: r.updates, skipped: r.skipped, errors: r.errors, notes: r.notes }; }}
           save={saveProduct} onClose={() => setShowImport(false)} onDone={() => { setShowImport(false); loadProducts(); }} />
       )}
       {showMake && <MakeModal products={products} currency={profileCurrency} onClose={() => setShowMake(false)} onSaved={afterProduction} />}
@@ -279,6 +285,16 @@ export default function InventoryView() {
                   placeholder="Scan or type" autoComplete="off"
                   title="Click here and scan the product. Scanning this code on an invoice then adds the product." />
               </div>
+              {(form.moreBarcodes || form.kind !== 'service') && (
+                <div className="form-group">
+                  <label className="form-label">More barcodes <span style={{ color: 'var(--text-muted)', fontWeight: 400 }}>(optional)</span></label>
+                  <input type="text" className="form-input" value={form.moreBarcodes || ''}
+                    onChange={e => updateField('moreBarcodes', e.target.value)}
+                    onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); updateField('moreBarcodes', `${form.moreBarcodes || ''}${form.moreBarcodes ? ', ' : ''}`); } }}
+                    placeholder="Other tags of this product, separated by commas" autoComplete="off"
+                    title="Tags of other purchase lots (as MARG prints them). Scanning any of these bills this product." />
+                </div>
+              )}
               {/* v1.10.29 — Purchase price + selling price side by side.
                   Selling price seeds the invoice rate; purchase price seeds
                   the purchase-bill rate. Legacy `rate` field kept invisible

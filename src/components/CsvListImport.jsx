@@ -20,7 +20,8 @@ const download = (text, name) => {
 
 const GST_CHOICES = [5, 12, 18, 28, 3, 0.25];
 
-// what: 'products' | 'clients'. parse(textOrRows) -> { list, skipped, errors, notes }.
+// what: 'products' | 'clients'. parse(textOrRows) -> { list, updates, skipped, errors, notes }.
+// updates: saved records the file adds to (products: more barcodes), saved as they are.
 // save(item) saves one. intro: what the columns are.
 export default function CsvListImport({ what, sample, sampleName, doc, intro, parse, save, onClose, onDone }) {
   const [plan, setPlan] = useState(null); // { fileName, list, skipped, errors, notes }
@@ -42,7 +43,7 @@ export default function CsvListImport({ what, sample, sampleName, doc, intro, pa
       }
       setZeroGst('keep');
       setStockToZero(true);
-      setPlan({ fileName: file.name, notes: {}, ...result });
+      setPlan({ fileName: file.name, notes: {}, ...result, updates: result.updates || [] });
     } catch (err) {
       toast(`Could not read ${file.name}: ${err.message}`, 'error');
     }
@@ -62,7 +63,11 @@ export default function CsvListImport({ what, sample, sampleName, doc, intro, pa
         await save(item);
         saved += 1;
       }
-      toast(`Imported ${saved} ${what}${plan.skipped ? `, skipped ${plan.skipped} already in your list` : ''}`, 'success');
+      for (const item of plan.updates) { await save(item); saved += 1; }
+      const added = saved - plan.updates.length;
+      toast(plan.updates.length
+        ? `Imported ${added} new ${what}; added barcodes to ${plan.updates.length} already in your list`
+        : `Imported ${added} ${what}${plan.skipped ? `, skipped ${plan.skipped} already in your list` : ''}`, 'success');
       onDone();
     } catch (err) {
       toast(`Import stopped after ${saved}: ${err.message}`, 'error', 9000);
@@ -71,7 +76,7 @@ export default function CsvListImport({ what, sample, sampleName, doc, intro, pa
   };
 
   const close = () => { if (!busy) onClose(); };
-  const n = plan?.list.length || 0;
+  const n = (plan?.list.length || 0) + (plan?.updates?.length || 0);
   const notes = plan?.notes || {};
   return (
     <div className="modal-overlay" onClick={close}>
@@ -96,8 +101,11 @@ export default function CsvListImport({ what, sample, sampleName, doc, intro, pa
         </div>
         {plan && (
           <div style={{ padding: '0.75rem', background: 'var(--bg-secondary)', borderRadius: 8, fontSize: '0.85rem' }}>
-            <strong>{plan.fileName}</strong>: {n} ready to import
-            {plan.skipped > 0 && <> · {plan.skipped} already in your list (skipped)</>}
+            <strong>{plan.fileName}</strong>: {plan.list.length} new {what} ready to import
+            {plan.skipped > 0 && <> · {plan.skipped} already in your list{plan.updates.length ? '' : ' (skipped)'}</>}
+            {plan.updates.length > 0 && (
+              <p style={{ margin: '0.5rem 0 0' }}><b style={{ color: 'var(--success, #15803d)' }}>{notes.barcodesAdded} barcode{notes.barcodesAdded === 1 ? '' : 's'}</b> will be added to {plan.updates.length} product{plan.updates.length === 1 ? '' : 's'} already in your list (their stock and prices are not changed). Scanning any of them bills that product.</p>
+            )}
             {notes.suppliers > 0 && <p style={{ margin: '0.5rem 0 0' }}>{notes.suppliers} suppliers, banks and other ledgers left out: only customers are added as clients.</p>}
             {notes.merged > 0 && <p style={{ margin: '0.5rem 0 0' }}>{notes.merged} more row{notes.merged === 1 ? '' : 's'} of an item already in the file (another batch): {notes.merged === 1 ? 'its' : 'their'} stock is added to that item.</p>}
             {notes.fromMrp > 0 && <p style={{ margin: '0.5rem 0 0' }}>{notes.fromMrp} product{notes.fromMrp === 1 ? '' : 's'} had no selling rate: the <b>MRP</b> is used as the selling price.</p>}

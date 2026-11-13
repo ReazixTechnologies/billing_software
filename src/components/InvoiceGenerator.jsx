@@ -23,7 +23,7 @@ import { isOfflineMode } from '../utils/offlineMode';
 import DOMPurify from 'dompurify';
 import InvoicePreview from './InvoicePreview';
 import { suggestGstRate, autoFillRate, rateText } from '../utils/hsnRates';
-import { addScannedLine, cleanBarcode, findByBarcode, isBlankLine, pickProductLine } from '../utils/products';
+import { addScannedLine, cleanBarcode, findByBarcode, isBlankLine, pickProductLine, productBarcodes } from '../utils/products';
 import { FORM_PAYMENT_MODES, newPaymentInfo, paymentInfoForBill, applyFormPayment, paidElsewhere, splitFormPayment } from '../utils/invoicePayment';
 import HelpButton from './HelpButton';
 import { getClientCredit, planCreditApplication } from '../utils/clientCredit';
@@ -1763,7 +1763,7 @@ export default function InvoiceGenerator({ onBack, onStartNew, profile: profileP
     if (productSearch.itemId !== itemId || !productSearch.query.trim()) return [];
     const q = productSearch.query.toLowerCase();
     return products.filter(p =>
-      p.name?.toLowerCase().includes(q) || p.hsn?.toLowerCase().includes(q) || p.barcode?.toLowerCase().includes(q.trim())
+      p.name?.toLowerCase().includes(q) || p.hsn?.toLowerCase().includes(q) || productBarcodes(p).some((b) => b.toLowerCase().includes(q.trim()))
     ).slice(0, 5);
   }, [productSearch.itemId, productSearch.query, products]);
 

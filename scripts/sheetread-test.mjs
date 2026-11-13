@@ -12,6 +12,7 @@
 import { readFileSync } from 'node:fs';
 import { readSheet } from '../src/utils/sheetRead.js';
 import { buildXlsx } from '../src/utils/xlsx.js';
+import { findByBarcode, duplicateBarcode } from '../src/utils/products.js';
 import { productsCsvToList, clientsCsvToList, PRODUCTS_SAMPLE } from '../src/utils/listCsv.js';
 
 let passed = 0, failed = 0;
@@ -40,7 +41,7 @@ const p0 = p.products[0];
 eq([p0.name, p0.barcode, p0.hsn, p0.purchasePrice, p0.unit], ['साबण demo 0', '100', '6203', 60, 'PCS'], 'Item code -> barcode, HSNCode, P.Rate, Unit');
 eq([p0.sellingPrice, p.products[1].sellingPrice], [150, 101], 'Rate 0 -> the MRP is the price; otherwise the Rate');
 eq(p.products.slice(0, 4).map((x) => x.taxPercent), [0, 5, 12, 18], 'GST from IGST, or SGST + CGST when IGST is 0');
-eq(p.notes, { fromMrp: 80, zeroGst: 100, negativeStock: 20, merged: 0 }, 'notes for the check screen');
+eq(p.notes, { fromMrp: 80, zeroGst: 100, negativeStock: 20, merged: 0, barcodesAdded: 0 }, 'notes for the check screen');
 eq(productsCsvToList(rows, p.products).skipped, 400, 'importing the same file again skips every product');
 
 console.log('\nNew Excel (.xlsx)');
@@ -107,6 +108,28 @@ eq([trial.products.length, trial.errors.length], [0, 1], 'a trial balance chosen
 const itemsAsClients = clientsCsvToList(rows);
 eq([itemsAsClients.clients.length, itemsAsClients.errors.length], [0, 1], 'an item list chosen on Clients is refused');
 eq(clientsCsvToList('Customer Name\nRavi\n').clients.length, 1, 'a plain list of client names still imports');
+
+console.log('\nOne barcode per purchase lot (MARG batch-wise stock report)');
+const LOTS = [
+  ['Code', 'Product Name', 'Unit', 'Current Stock', 'M.R.P.', 'Purchase Price', 'Sales Price', 'Rec.Date', 'Batch', 'Barcode'],
+  ['418', 'Shirt J', 'PCS', 8, 1050, 350, 0, '28-Feb-26', '002927', '002927'],
+  ['418', 'Shirt J', 'PCS', 29, 1050, 360, 0, '13-Oct-26', '003955', '003955'],
+  ['21', 'First Option', 'PCS', -13, 949, 700, 949, '15-Oct-23', '000029', '000029'],
+  ['21', 'First Option', 'PCS', -2, 1049, 750, 1049, '30-Dec-23', '000301', '000301'],
+];
+const lots = productsCsvToList(LOTS);
+const shirt = lots.products.find((q) => q.name === 'Shirt J');
+const opt = lots.products.find((q) => q.name === 'First Option');
+eq([shirt.barcode, shirt.barcodes, shirt.stock, shirt.purchasePrice], ['002927', ['003955'], 37, 360], 'a new shop: one product, every lot\'s barcode, stock added, the latest lot\'s purchase price');
+eq([opt.sellingPrice, opt.stock], [1049, -15], 'the latest lot\'s selling price');
+eq(findByBarcode(lots.products, '003955')?.name, 'Shirt J', 'scanning the second lot\'s tag finds the product');
+eq(findByBarcode(lots.products, ' 000301 ')?.name, 'First Option', 'any lot, spaces ignored, leading zeros kept');
+const savedProducts = [{ id: 'a', name: 'Shirt J', barcode: '418', stock: 37, sellingPrice: 1050 }, { id: 'b', name: 'First Option', barcode: '21', stock: -15 }];
+const upd = productsCsvToList(LOTS, savedProducts);
+eq([upd.products.length, upd.skipped, upd.notes.barcodesAdded], [0, 2, 4], 'already imported: nothing new, 4 barcodes to add to the 2 saved products');
+eq(upd.updates.map((q) => [q.id, q.barcode, q.barcodes, q.stock, q.sellingPrice]), [['a', '418', ['002927', '003955'], 37, 1050], ['b', '21', ['000029', '000301'], -15, undefined]], 'their old code, stock and price kept; the lot barcodes added');
+eq(productsCsvToList(LOTS, upd.updates).updates.length, 0, 'choosing the file again adds nothing more');
+eq(duplicateBarcode([{ barcode: '1', barcodes: ['2'] }, { barcode: '3', barcodes: ['2'] }]), '2', 'a lot barcode on two products is caught');
 
 console.log(`\n${passed} passed, ${failed} failed`);
 if (failed) process.exit(1);
