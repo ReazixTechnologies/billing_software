@@ -26,6 +26,7 @@ import { readFileSync } from 'fs';
 import { PDFDocument } from 'pdf-lib';
 import { setTimeout as sleep } from 'timers/promises';
 import { activateForTest } from '../license-tool/reazix-license.mjs';
+import { buildXlsx } from '../src/utils/xlsx.js';
 
 const results = [];
 let serverProc = null;
@@ -1679,6 +1680,34 @@ try {
     const bulk77 = (await get77('/api/products')).json.find((x) => x.id === 'smoketest-bulk77');
     check('v77 #85 Bulk edit saves the changed price (and rate) and leaves stock alone',
       bulk77?.sellingPrice === 12.5 && bulk77?.rate === 12.5 && bulk77?.stock === 7, JSON.stringify(bulk77 && { s: bulk77.sellingPrice, r: bulk77.rate, st: bulk77.stock }));
+
+    // 1.0.6 - a MARG-style Excel item list imports as it is: title row above
+    // the headings, MARG headings, GST chosen for the 0% items, stock below
+    // zero started at 0, MRP used where the Rate is 0, the Total line left out.
+    const xlsx = buildXlsx([
+      ['SMOKE TRADERS - ITEM LIST'],
+      ['ItemCode', 'Name', 'HSNCode', 'IGST', 'Rate', 'P.Rate', 'M.R.P.', 'Stock'],
+      ['901', 'Smoke Import Jeans', '6203', 0, 0, 500, 999, -4],
+      ['902', 'Smoke Import Shirt', '', 12, 650, 400, 800, 3],
+      ['', 'Grand Total', '', '', '', '', '', -1],
+    ]);
+    await toView77('inventory');
+    await page.getByRole('button', { name: /Import \(Excel \/ CSV\)/ }).click();
+    await page.locator('.modal-content input[type="file"]').setInputFiles({ name: 'ITEMS.xlsx', mimeType: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', buffer: Buffer.from(xlsx) });
+    await sleep(800);
+    const importText = await page.locator('.modal-content').innerText();
+    await page.getByLabel('GST for products at 0%').selectOption('5');
+    await page.getByRole('button', { name: 'Import 2' }).click();
+    await sleep(2500);
+    const imported = (await get77('/api/products')).json.filter((x) => String(x.name).startsWith('Smoke Import '));
+    const jeans = imported.find((x) => x.name === 'Smoke Import Jeans');
+    const shirt = imported.find((x) => x.name === 'Smoke Import Shirt');
+    check('1.0.6 a MARG Excel item list imports: GST set, stock below zero at 0, MRP as price, Total left out',
+      imported.length === 2 && /1 product is at 0% GST/.test(importText) && /stock below zero/.test(importText)
+        && jeans?.taxPercent === 5 && jeans?.stock === 0 && jeans?.sellingPrice === 999 && jeans?.barcode === '901' && jeans?.hsn === '6203'
+        && shirt?.taxPercent === 12 && shirt?.stock === 3 && shirt?.sellingPrice === 650 && shirt?.purchasePrice === 400,
+      JSON.stringify(imported.map((x) => [x.name, x.taxPercent, x.stock, x.sellingPrice])));
+    await page.evaluate(async (ids) => { for (const id of ids) await fetch(`/api/products/${encodeURIComponent(id)}`, { method: 'DELETE' }); }, imported.map((x) => x.id));
   }
 
   // ---- v1.10.78: issues #92, #93 -------------------------------------------

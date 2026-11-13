@@ -711,7 +711,7 @@ export default function ClientsView({ onEdit, onDuplicate, onNew }) {
         </div>
         <div className="flex gap-2">
           <button className="btn btn-secondary" onClick={() => setShowImport(true)}>
-            <Upload size={16} /> Import CSV
+            <Upload size={16} /> Import (Excel / CSV)
           </button>
           <button className="btn btn-secondary" data-shortcut="new" onClick={() => openAddClient()}>
             <Plus size={18} /> Add Client
@@ -725,7 +725,7 @@ export default function ClientsView({ onEdit, onDuplicate, onNew }) {
       {showImport && (
         <CsvListImport what="clients" sample={CLIENTS_SAMPLE} sampleName="Clients-sample.csv" doc="clients#import-csv"
           intro="One client per row: Name (required), GSTIN, Phone, Email, Address and State."
-          parse={(text) => { const r = clientsCsvToList(text, clients); return { list: r.clients, skipped: r.skipped, errors: r.errors }; }}
+          parse={(text) => { const r = clientsCsvToList(text, clients); return { list: r.clients, skipped: r.skipped, errors: r.errors, notes: r.notes }; }}
           save={saveClient} onClose={() => setShowImport(false)} onDone={() => { setShowImport(false); loadData(); }} />
       )}
 

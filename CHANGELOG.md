@@ -4,6 +4,35 @@ All notable changes to **Reazix Billing Software** are listed here.
 
 ---
 
+## [1.0.6] - 2026-11-13
+
+**New: bring your products and customers from MARG, Tally, Busy or Vyapar.**
+
+### How to update
+
+**Current version:** 1.0.5  →  **New version:** 1.0.6
+
+Click **Update** in the app's menu. Your invoices and settings are kept.
+
+### New
+- **Import from Excel:** on Products and Clients, **Import (Excel / CSV)**
+  now takes the Excel file (.xls or .xlsx) your old program exports, as it
+  is: no need to change it to CSV or fill in our sample file.
+- The old program's columns are found by themselves: item code, HSN, GST
+  (or SGST + CGST), rate, purchase rate, MRP, stock, unit; party name,
+  GSTIN, mobile, address.
+- **A check before importing:** products at 0% GST (pick their GST),
+  stock below zero (start it at 0), and products with no selling rate
+  (the MRP is used).
+- Report titles, repeated page headings and Total lines are left out.
+  Batches of the same medicine are joined into one product with the stock
+  added up. From a ledger list only customers are added, not suppliers or
+  banks.
+- Choosing the wrong file (a trial balance, or the item list on Clients)
+  is caught and explained instead of importing wrong data.
+
+---
+
 ## [1.0.5] - 2026-11-13
 
 **New: Staff screen with sales commission.**

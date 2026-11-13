@@ -17,7 +17,7 @@ export default [
 <p>The buttons at the top of the screen:</p>
 <div class="table-wrap"><table>
   <tr><th>Button</th><th>What it does</th></tr>
-  <tr><td>${ui('Import CSV')}</td><td>Adds many products at once from a spreadsheet. See <a href="#import">Importing products</a>.</td></tr>
+  <tr><td>${ui('Import (Excel / CSV)')}</td><td>Adds many products at once from a spreadsheet. See <a href="#import">Importing products</a>.</td></tr>
   <tr><td>${ui('Bulk edit')}</td><td>Turns the list into a grid you can type in, to change many products at once. See <a href="#bulk-edit">Bulk edit</a>. Greyed out until you have a product.</td></tr>
   <tr><td>${ui('Make')}</td><td>Only when manufacturing is turned on: records goods you made from raw materials. See <a href="#manufacturing">Manufacturing</a>.</td></tr>
   <tr><td>${ui('Add Product')}</td><td>Opens the product form. See <a href="#add-product">Adding a product or service</a>.</td></tr>
@@ -40,7 +40,7 @@ export default [
 <section id="product-export">
 <h3>Printing or exporting the list</h3>
 <p>${ui('Print / PDF')}, ${ui('Excel')} and ${ui('CSV')} beside the table title save the products shown, with name, type (Goods or Service), HSN/SAC, purchase price, selling price, GST %, unit and stock. Search first to save only some. ${ui('Print / PDF')} opens the print window, where you can choose a printer or <b>Save as PDF</b>. The buttons are hidden during a bulk edit.</p>
-<p>A CSV saved here can be opened in Excel, and is a handy way to send your price list to an accountant. It can also be brought back in with ${ui('Import CSV')}, or into another copy of the app.</p>
+<p>A CSV saved here can be opened in Excel, and is a handy way to send your price list to an accountant. It can also be brought back in with ${ui('Import (Excel / CSV)')}, or into another copy of the app.</p>
 </section>
 
 <section id="product-delete">
@@ -119,7 +119,7 @@ export default [
   <li>One barcode belongs to one product. Saving a code another product already has shows which product has it, and nothing is saved.</li>
   <li>The barcode is kept exactly as scanned, leading zeros included. Capital and small letters count as the same.</li>
   <li>The search box above the list finds products by barcode too.</li>
-  <li><a href="#bulk-edit">Bulk edit</a> has a Barcode column, and <a href="#import">Import CSV</a> reads a <b>Barcode</b> column (also called EAN, UPC, SKU or Item code). In Excel, format that column as <b>Text</b> first: otherwise Excel turns a long barcode into a number like 8.9E+12, and the import refuses that row.</li>
+  <li><a href="#bulk-edit">Bulk edit</a> has a Barcode column, and <a href="#import">Import</a> reads a <b>Barcode</b> column (also called EAN, UPC, SKU or Item code). In Excel, format that column as <b>Text</b> first: otherwise Excel turns a long barcode into a number like 8.9E+12, and the import refuses that row.</li>
 </ul>
 </section>
 
@@ -171,16 +171,19 @@ export default [
 
 <section id="import">
 <h2>Importing products from a spreadsheet</h2>
-<p>Have your price list in Excel, or moving from another program? ${ui('Import CSV')} adds all the products and services at once.</p>
+<p>Have your price list in Excel, or moving from another program? ${ui('Import (Excel / CSV)')} adds all the products and services at once.</p>
 <ol class="steps">
-  <li><strong>Open the window</strong>Click ${ui('Import CSV')} on the Products screen. The window <b>Import products from CSV</b> opens.</li>
+  <li><strong>Open the window</strong>Click ${ui('Import (Excel / CSV)')} on the Products screen. The window <b>Import products from Excel or CSV</b> opens.</li>
   <li><strong>Get the sample file</strong>Click ${ui('Download sample file')}. <code>Products-sample.csv</code> lands in your Downloads folder, with the right column headings and two demo rows: a product (Goods) and a service.</li>
   <li><strong>Fill it in</strong>Open it in Excel or Google Sheets. Replace the two demo rows with your own, one product or service per row. Keep the first row (the headings) as it is.</li>
-  <li><strong>Save as CSV</strong>In Excel, <b>File → Save As → CSV UTF-8 (Comma delimited)</b> or <b>CSV (Comma delimited)</b>. In Google Sheets, <b>File → Download → Comma-separated values</b>.</li>
-  <li><strong>Choose the file</strong>Click ${ui('Choose CSV file')}. Nothing is saved yet: the window shows how many are ready, how many are already in your list (skipped), and every row with a problem.</li>
+  <li><strong>Save it</strong>Save it as Excel (.xlsx or .xls) or as CSV: all of them work.</li>
+  <li><strong>Choose the file</strong>Click ${ui('Choose file (Excel or CSV)')}. Nothing is saved yet: the window shows how many are ready, how many are already in your list (skipped), and every row with a problem.</li>
+  <li><strong>Check</strong>The window points out what to look at before importing: products at <b>0% GST</b> (choose the GST to give them, or keep 0% for exempt goods), stock <b>below zero</b> (tick to start it at 0), and products whose selling price was taken from the <b>MRP</b>.</li>
   <li><strong>Import</strong>Click ${ui('Import')} (it shows the number, such as <b>Import 40</b>). You see "Imported 40 products", and they appear in the list.</li>
 </ol>
-<p>The columns (headings in small or capital letters, in any order; spaces and % do not matter):</p>
+<h3 id="from-marg">Moving from MARG, Tally, Busy or Vyapar</h3>
+<p>Export the item (stock) list from your old program to Excel and choose that file as it is: there is no need to fill in the sample file. A title or company name above the headings is passed over, a <b>Total</b> line at the end is left out, and the old program's headings are understood: <code>Item Name</code>, <code>Item Code</code>, <code>HSNCode</code>, <code>P.Rate</code> or <code>Pur. Rate</code>, <code>Rate</code> or <code>Sale Rate</code>, <code>M.R.P.</code>, <code>IGST</code> (or <code>SGST</code> + <code>CGST</code>), <code>Stock</code> or <code>Cl. Stock</code>, <code>UOM</code>. Where the selling rate is 0 or blank, the MRP is used.</p>
+<p>The columns (headings in small or capital letters, in any order; spaces, dots and % do not matter):</p>
 <div class="table-wrap"><table>
   <tr><th>Column heading</th><th>Holds</th></tr>
   <tr><td><code>Name</code> (or <code>Product</code>, <code>Product Name</code>, <code>Item</code>)</td><td>Required. Rows without a name are skipped.</td></tr>

@@ -45,23 +45,43 @@ const norm = (h) => String(h || '').toLowerCase().replace(/[\s_\-.%()/#]+/g, '')
 
 // Rows as objects keyed by canonical field name. `fields` maps each canonical
 // name to the accepted header spellings.
-export function rowsToRecords(text, fields) {
-  const table = parseCsv(text);
+//
+// `input` is CSV text or rows already read from a spreadsheet (sheetRead.js).
+// The heading row is the one in the first 15 that names the most known
+// columns, so a report title or company name above it (MARG, Tally and Busy
+// exports have one) is passed over.
+export function rowsToRecords(input, fields) {
+  const table = Array.isArray(input) ? input : parseCsv(input);
   if (table.length < 2) return { records: [], missing: [], unknown: [] };
-  const header = table[0].map(norm);
-  const colOf = {};
-  for (const [field, aliases] of Object.entries(fields)) {
-    const idx = header.findIndex((h) => aliases.map(norm).includes(h));
-    if (idx >= 0) colOf[field] = idx;
+  // Aliases are tried in the order listed, so when a file has two candidate
+  // columns (MARG's "Cost Price" and "Purchase Price") the first-listed wins.
+  const normed = Object.entries(fields).map(([field, aliases]) => [field, aliases.map(norm)]);
+  const colsIn = (row) => {
+    const header = row.map(norm);
+    const colOf = {};
+    const taken = new Set();
+    for (const [field, aliases] of normed) {
+      for (const a of aliases) {
+        const idx = header.findIndex((h, i) => h === a && !taken.has(i));
+        if (idx >= 0) { colOf[field] = idx; taken.add(idx); break; }
+      }
+    }
+    return colOf;
+  };
+  let headAt = 0;
+  let colOf = colsIn(table[0]);
+  for (let i = 1; i < Math.min(15, table.length - 1); i++) {
+    const c = colsIn(table[i]);
+    if (Object.keys(c).length > Object.keys(colOf).length) { headAt = i; colOf = c; }
   }
   const known = new Set(Object.values(colOf));
-  const unknown = table[0].filter((_, i) => !known.has(i) && String(table[0][i]).trim());
-  const records = table.slice(1).map((r, i) => {
-    const rec = { _line: i + 2 };
+  const unknown = table[headAt].filter((_, i) => !known.has(i) && String(table[headAt][i]).trim());
+  const records = table.slice(headAt + 1).map((r, i) => {
+    const rec = { _line: headAt + i + 2 };
     for (const [field, idx] of Object.entries(colOf)) rec[field] = String(r[idx] ?? '').trim();
     return rec;
   });
-  return { records, colOf, unknown };
+  return { records, colOf, unknown, header: table[headAt] };
 }
 
 // "1,234.50", "₹ 99", "(12)" -> numbers; '' -> fallback.

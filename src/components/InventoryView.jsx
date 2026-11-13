@@ -209,7 +209,7 @@ export default function InventoryView() {
         {/* Wraps on a phone: with Make there are four buttons (v1.10.83, #115). */}
         <div className="flex gap-2" style={{ flexWrap: 'wrap' }}>
           <button className="btn btn-secondary" onClick={() => setShowImport(true)}>
-            <Upload size={16} /> Import CSV
+            <Upload size={16} /> Import (Excel / CSV)
           </button>
           <button className="btn btn-secondary" onClick={() => setBulkEdit(true)} disabled={!products.length || bulkEdit}
             title="Edit name, HSN, prices, GST %, unit and stock of many products at once">
@@ -229,7 +229,7 @@ export default function InventoryView() {
       {showImport && (
         <CsvListImport what="products" sample={PRODUCTS_SAMPLE} sampleName="Products-sample.csv" doc="products#import"
           intro="One product or service per row: Name (required), Type (Goods or Service), HSN/SAC, Unit, Purchase Price, Selling Price, GST %, Stock (leave Stock blank for a service) and Barcode."
-          parse={(text) => { const r = productsCsvToList(text, products); return { list: r.products, skipped: r.skipped, errors: r.errors }; }}
+          parse={(text) => { const r = productsCsvToList(text, products); return { list: r.products, skipped: r.skipped, errors: r.errors, notes: r.notes }; }}
           save={saveProduct} onClose={() => setShowImport(false)} onDone={() => { setShowImport(false); loadProducts(); }} />
       )}
       {showMake && <MakeModal products={products} currency={profileCurrency} onClose={() => setShowMake(false)} onSaved={afterProduction} />}

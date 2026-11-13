@@ -16,7 +16,7 @@ export default [
 <p>The buttons at the top of the screen:</p>
 <div class="table-wrap"><table>
   <tr><th>Button</th><th>What it does</th></tr>
-  <tr><td>${ui('Import CSV')}</td><td>Adds many clients at once from a spreadsheet. See <a href="#import-csv">Importing clients</a>.</td></tr>
+  <tr><td>${ui('Import (Excel / CSV)')}</td><td>Adds many clients at once from a spreadsheet. See <a href="#import-csv">Importing clients</a>.</td></tr>
   <tr><td>${ui('Add Client')}</td><td>Opens the client form for a new client. See <a href="#client-form">Adding and editing a client</a>.</td></tr>
   <tr><td>${ui('New Invoice')}</td><td>Opens a blank invoice.</td></tr>
 </table></div>
@@ -221,15 +221,16 @@ export default [
 
 <section id="import-csv">
 <h2>Importing clients from a spreadsheet</h2>
-<p>Moving from another program or an Excel list? ${ui('Import CSV')} adds many clients at once, one per row.</p>
+<p>Moving from another program or an Excel list? ${ui('Import (Excel / CSV)')} adds many clients at once, one per row.</p>
 <ol class="steps">
-  <li><strong>Open the window</strong>Click ${ui('Import CSV')} on the Clients screen. The window <b>Import clients from CSV</b> opens.</li>
+  <li><strong>Open the window</strong>Click ${ui('Import (Excel / CSV)')} on the Clients screen. The window <b>Import clients from Excel or CSV</b> opens.</li>
   <li><strong>Get the sample file</strong>Click ${ui('Download sample file')}. <code>Clients-sample.csv</code> lands in your Downloads folder, with the right column headings and two demo clients.</li>
   <li><strong>Fill it in</strong>Open it in Excel or Google Sheets. Replace the demo rows with your clients, one per row. Keep the first row (the headings) as it is.</li>
-  <li><strong>Save as CSV</strong>In Excel, <b>File → Save As → CSV UTF-8 (Comma delimited)</b> or <b>CSV (Comma delimited)</b>. In Google Sheets, <b>File → Download → Comma-separated values</b>.</li>
-  <li><strong>Choose the file</strong>Click ${ui('Choose CSV file')}. Nothing is saved yet: the window shows how many clients are ready and how many are already in your list (skipped).</li>
+  <li><strong>Save it</strong>Save it as Excel (.xlsx or .xls) or as CSV: all of them work.</li>
+  <li><strong>Choose the file</strong>Click ${ui('Choose file (Excel or CSV)')}. Nothing is saved yet: the window shows how many clients are ready and how many are already in your list (skipped).</li>
   <li><strong>Import</strong>Click ${ui('Import')} (such as <b>Import 12</b>). You see "Imported 12 clients", and the new cards appear.</li>
 </ol>
+<p><b>Moving from MARG, Tally, Busy or Vyapar?</b> Export the party (ledger) list to Excel and choose that file as it is. Headings such as <code>Party Name</code>, <code>Ledger Name</code>, <code>GSTIN/UIN</code>, <code>Mobile No</code>, <code>Address 1</code>, <code>Address 2</code> and <code>City</code> are understood. If the list has a <code>Group</code> column, only customers (Sundry Debtors) are added; suppliers, banks and expense ledgers are left out.</p>
 <p>The columns (headings in small or capital letters, in any order):</p>
 <div class="table-wrap"><table>
   <tr><th>Column heading</th><th>Holds</th></tr>
