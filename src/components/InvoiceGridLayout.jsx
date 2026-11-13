@@ -204,7 +204,6 @@ function PartyBlock({ ctx, heading, party, withContact }) {
       {t.state && party.state && <div>State Name : {stateWithCode(party.state)}</div>}
       {withContact && t.clientPhone && party.phone && <div>Ph: {party.phone}</div>}
       {withContact && t.clientEmail && party.email && <div>E-Mail : {party.email}</div>}
-      {withContact && ctx.details?.attendedBy?.trim() && <div>Attended by : {ctx.details.attendedBy.trim()}</div>}
     </div>
   );
 }
