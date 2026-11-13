@@ -4,6 +4,32 @@ All notable changes to **Reazix Billing Software** are listed here.
 
 ---
 
+## [1.0.5] - 2026-11-13
+
+**New: Staff screen with sales commission.**
+
+### How to update
+
+**Current version:** 1.0.4  →  **New version:** 1.0.5
+
+Click **Update** in the app's menu. Your invoices and settings are kept.
+
+### New
+- **Staff screen** (in the menu): add each person who works for you, with
+  phone, role, joining date and commission %.
+- **Commission report:** see each staff member's sales (before GST) and
+  commission for this month, last month, this financial year or any dates.
+  Click a name to see their invoices. Export to Excel or CSV.
+- **Attended By on the invoice** now suggests your staff names as you type.
+  The name is kept with the invoice for the report and no longer printed on
+  the customer's bill.
+- **Faster typing on the invoice:** Shift+Enter in an item line jumps to
+  Payment. On Payment, Enter moves to the next choice (Unpaid, Paid, UPI,
+  Cash...), and Shift+Enter moves on to Invoice Details.
+- Staff are kept in backups and come back with Restore.
+
+---
+
 ## [1.0.4] - 2026-11-12
 
 **Installing on a new PC works first time.**
